@@ -1,0 +1,14 @@
+# Secrets — mỗi máy tự tạo .env từ .env.example
+.env
+
+# Build / IDE
+target/
+out/
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Runtime
+logs/
+*.log
