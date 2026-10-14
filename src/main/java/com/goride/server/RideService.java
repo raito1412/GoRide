@@ -31,7 +31,7 @@ public final class RideService {
             JOIN users u ON u.id = r.user_id
             LEFT JOIN users du ON du.id = r.driver_id
             LEFT JOIN drivers d ON d.user_id = r.driver_id
-            LEFT JOIN reviews rv ON rv.ref_type = 'RIDE' AND rv.ref_id = r.id
+            LEFT JOIN reviews rv ON rv.ref_type = 'RIDE' AND rv.ref_id = r.id AND rv.target = 'DRIVER'
             """;
 
     private RideService() {}
@@ -49,13 +49,18 @@ public final class RideService {
         return (int) (Math.round(v / 1000.0) * 1000);
     }
 
-    static JsonObject quote(JsonObject d) {
+    static JsonObject quote(ClientHandler c, JsonObject d) {
         double[] from = point(d, "pickup"), to = point(d, "drop");
         JsonObject bike = MapboxClient.route(from[0], from[1], to[0], to[1], "bike");
         int dist = bike.get("distance_m").getAsInt(), dur = bike.get("duration_s").getAsInt();
-        bike.add("prices", Json.obj(
-                "BIKE", price("BIKE", dist, dur),
-                "CAR", price("CAR", dist, (int) (dur * 1.2))));
+        int bikePrice = price("BIKE", dist, dur), carPrice = price("CAR", dist, (int) (dur * 1.2));
+        bike.add("prices", Json.obj("BIKE", bikePrice, "CAR", carPrice));
+        JsonObject voucher = VoucherService.lookup(c.userId, Json.str(d, "voucher_code"), "RIDE");
+        if (voucher != null) {
+            int dBike = VoucherService.amount(voucher, bikePrice), dCar = VoucherService.amount(voucher, carPrice);
+            bike.add("discounts", Json.obj("BIKE", dBike, "CAR", dCar));
+            bike.add("prices_after", Json.obj("BIKE", bikePrice - dBike, "CAR", carPrice - dCar));
+        }
         return bike;
     }
 
@@ -71,12 +76,21 @@ public final class RideService {
         int dist = route.get("distance_m").getAsInt(), dur = route.get("duration_s").getAsInt();
         if (dist < 200) throw new AppException("Điểm đón và điểm đến quá gần nhau");
 
-        long id = Db.insert("""
-                INSERT INTO rides(user_id, vehicle_type, pickup_address, pickup_lat, pickup_lng,
-                                  drop_address, drop_lat, drop_lng, distance_m, duration_s, price, payment_method, status)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'SEARCHING')""",
-                c.userId, vehicle, Json.req(d, "pickup_address", "Điểm đón"), from[0], from[1],
-                Json.req(d, "drop_address", "Điểm đến"), to[0], to[1], dist, dur, price(vehicle, dist, dur), payment);
+        JsonObject voucher = VoucherService.lookup(c.userId, Json.str(d, "voucher_code"), "RIDE");
+        int gross = price(vehicle, dist, dur);
+        int discount = VoucherService.amount(voucher, gross);
+        long id = Db.tx(conn -> {
+            long rid = Db.insert(conn, """
+                    INSERT INTO rides(user_id, vehicle_type, pickup_address, pickup_lat, pickup_lng,
+                                      drop_address, drop_lat, drop_lng, distance_m, duration_s,
+                                      price, discount, voucher_code, payment_method, status)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'SEARCHING')""",
+                    c.userId, vehicle, Json.req(d, "pickup_address", "Điểm đón"), from[0], from[1],
+                    Json.req(d, "drop_address", "Điểm đến"), to[0], to[1], dist, dur,
+                    gross - discount, discount, voucher == null ? null : Json.str(voucher, "code"), payment);
+            VoucherService.markUsed(conn, voucher, "RIDE", rid);
+            return rid;
+        });
         Log.info("User #" + c.userId + " đặt chuyến #" + id + " (" + vehicle + ")");
 
         JsonObject ride = view(id);
@@ -107,10 +121,11 @@ public final class RideService {
     }
 
     private static JsonObject afterCancel(long id, String reason) {
+        VoucherService.release("RIDE", id);
         JsonObject ride = view(id);
         if (Json.has(ride, "driver_id")) {
             long driverId = ride.get("driver_id").getAsLong();
-            DriverJobs.release(driverId);
+            DriverJobs.release(driverId, "RIDE", id);
             Sessions.push(driverId, "RIDE_CANCELLED", Json.obj("id", id, "reason", reason));
         } else {
             Sessions.pushDrivers("RIDE_TAKEN", Json.obj("id", id), -1);
@@ -137,7 +152,7 @@ public final class RideService {
     private static void dispatch(JsonObject ride) {
         long id = ride.get("id").getAsLong();
         int sent = 0;
-        for (ClientHandler h : Sessions.availableDrivers()) {
+        for (ClientHandler h : Sessions.driversFreeForRide()) {
             JsonObject offer = offerFor(h, ride);
             if (offer != null) {
                 h.push("RIDE_REQUEST", offer);
@@ -175,16 +190,16 @@ public final class RideService {
             n = Db.update("UPDATE rides SET driver_id=?, status='ACCEPTED' "
                     + "WHERE id=? AND status='SEARCHING' AND driver_id IS NULL AND vehicle_type=?", c.userId, id, c.vehicleType);
         } catch (RuntimeException e) {
-            DriverJobs.release(c.userId);
+            DriverJobs.release(c.userId, "RIDE", id);
             throw e;
         }
         if (n == 0) {
-            DriverJobs.release(c.userId);
+            DriverJobs.release(c.userId, "RIDE", id);
             throw new AppException("Chuyến này đã có tài xế khác nhận hoặc đã bị hủy");
         }
         JsonObject ride = view(id);
         long userId = ride.get("user_id").getAsLong();
-        Sessions.ACTIVE_JOBS.put(c.userId, new Sessions.Job("RIDE", id, userId));
+        DriverJobs.attachCustomer(c.userId, "RIDE", id, userId);
         Sessions.addDriverLocation(ride);
         Sessions.push(userId, "RIDE_UPDATE", ride);
         Sessions.pushDrivers("RIDE_TAKEN", Json.obj("id", id), c.userId);
@@ -206,7 +221,7 @@ public final class RideService {
                         r.get("user_id").getAsLong(), id, r.get("price").getAsInt(), r.get("payment_method").getAsString());
                 return null;
             });
-            DriverJobs.release(c.userId);
+            DriverJobs.release(c.userId, "RIDE", id);
         } else if (Db.update(sql, next, id, c.userId, prev) == 0) {
             throw new AppException("Chuyến không ở trạng thái phù hợp");
         }

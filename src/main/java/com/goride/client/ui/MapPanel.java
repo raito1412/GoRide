@@ -218,9 +218,9 @@ public class MapPanel extends JPanel {
                 int w = fm.stringWidth(m.label) + 14, h = fm.getHeight() + 4;
                 int lx = x - w / 2, ly = y - 42 - h;
                 g.setColor(Color.WHITE);
-                g.fillRoundRect(lx, ly, w, h, h, h);
+                g.fillRect(lx, ly, w, h);
                 g.setColor(m.color.darker());
-                g.drawRoundRect(lx, ly, w, h, h, h);
+                g.drawRect(lx, ly, w, h);
                 g.setColor(Theme.INK);
                 g.drawString(m.label, lx + 7, ly + fm.getAscent() + 2);
             }

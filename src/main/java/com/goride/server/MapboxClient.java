@@ -67,17 +67,26 @@ public final class MapboxClient {
     }
 
     /**
-     * Gợi ý địa chỉ theo từ khóa.
-     * Kết quả Mapbox đã có toạ độ nên place_id tự mang "lat,lng|địa chỉ" -> detail() không cần gọi API nữa.
+     * Gợi ý địa chỉ + địa điểm (POI: quán, chợ, toà nhà...) theo từ khóa.
+     * Dùng Search Box API /forward (có POI); lỗi thì quay về Geocoding v6 (chỉ địa chỉ).
+     * Kết quả đã có toạ độ nên place_id tự mang "lat,lng|địa chỉ" -> detail() không cần gọi API nữa.
      */
     static JsonArray search(String input, double lat, double lng) {
         Map<String, String> p = geoParams();
         p.put("q", input);
         p.put("limit", "8");
-        p.put("autocomplete", "true");
         if (!Double.isNaN(lat)) p.put("proximity", lngLat(lat, lng));
+        JsonArray fs;
+        try {
+            fs = features(get("/search/searchbox/v1/forward", p));
+        } catch (AppException e) {
+            if (e.getMessage().contains("MAPBOX_TOKEN")) throw e;
+            Log.error("Search Box lỗi, dùng Geocoding v6", e);
+            p.put("autocomplete", "true");
+            fs = features(get("/search/geocode/v6/forward", p));
+        }
         JsonArray out = new JsonArray();
-        for (JsonElement e : features(get("/search/geocode/v6/forward", p))) {
+        for (JsonElement e : fs) {
             JsonObject f = e.getAsJsonObject();
             double[] c = coords(f);
             String address = address(f);
@@ -158,6 +167,80 @@ public final class MapboxClient {
 
     // ---------- tiện ích ----------
 
+    /**
+     * Ma trận quãng đường (m) và thời gian (s) giữa mọi cặp điểm, theo đường thật (Mapbox Matrix API).
+     * Không có token hoặc lỗi mạng thì ước lượng như route(): đường chim bay × 1.3, 25 km/h.
+     * Trả về {dist:[[..]], dur:[[..]], source}.
+     */
+    static JsonObject matrix(List<double[]> pts) {
+        int n = pts.size();
+        if (enabled() && n >= 2 && n <= 25) {
+            try {
+                StringBuilder path = new StringBuilder("/directions-matrix/v1/mapbox/driving/");
+                for (int i = 0; i < n; i++) path.append(i == 0 ? "" : ";").append(lngLat(pts.get(i)[0], pts.get(i)[1]));
+                Map<String, String> p = new LinkedHashMap<>();
+                p.put("annotations", "distance,duration");
+                JsonObject res = get(path.toString(), p);
+                JsonArray d = res.getAsJsonArray("distances"), t = res.getAsJsonArray("durations");
+                if (d != null && t != null && d.size() == n && !hasNull(d) && !hasNull(t))
+                    return Json.obj("dist", d, "dur", t, "source", "mapbox");
+            } catch (AppException | IllegalStateException e) {
+                Log.error("Mapbox Matrix lỗi, dùng ước lượng", e);
+            }
+        }
+        JsonArray d = new JsonArray(), t = new JsonArray();
+        for (double[] a : pts) {
+            JsonArray dr = new JsonArray(), tr = new JsonArray();
+            for (double[] b : pts) {
+                double km = Geo.km(a[0], a[1], b[0], b[1]) * 1.3;
+                dr.add(Math.round(km * 1000));
+                tr.add(Math.round(km / 25 * 3600));
+            }
+            d.add(dr);
+            t.add(tr);
+        }
+        return Json.obj("dist", d, "dur", t, "source", "estimate");
+    }
+
+    private static boolean hasNull(JsonArray m) {
+        for (var row : m) for (var v : row.getAsJsonArray()) if (v.isJsonNull()) return true;
+        return false;
+    }
+
+    /** Chỉ đường đi lần lượt qua nhiều điểm (tối đa 25), cùng dạng kết quả với route(). */
+    static JsonObject routeVia(List<double[]> pts) {
+        if (pts.size() < 2) return Json.obj("distance_m", 0, "duration_s", 0, "points", new JsonArray(), "source", "estimate");
+        if (pts.size() == 2) return route(pts.get(0)[0], pts.get(0)[1], pts.get(1)[0], pts.get(1)[1], "bike");
+        if (enabled() && pts.size() <= 25) {
+            try {
+                StringBuilder path = new StringBuilder("/directions/v5/mapbox/driving/");
+                for (int i = 0; i < pts.size(); i++) path.append(i == 0 ? "" : ";").append(lngLat(pts.get(i)[0], pts.get(i)[1]));
+                Map<String, String> p = new LinkedHashMap<>();
+                p.put("geometries", "polyline");
+                p.put("overview", "full");
+                JsonArray routes = get(path.toString(), p).getAsJsonArray("routes");
+                if (routes != null && !routes.isEmpty()) {
+                    JsonObject r = routes.get(0).getAsJsonObject();
+                    JsonArray points = new JsonArray();
+                    for (double[] pt : Geo.decodePolyline(r.get("geometry").getAsString())) points.add(pair(pt[0], pt[1]));
+                    return Json.obj("distance_m", (int) Math.round(r.get("distance").getAsDouble()),
+                            "duration_s", (int) Math.round(r.get("duration").getAsDouble()),
+                            "points", points, "source", "mapbox");
+                }
+            } catch (AppException | IllegalStateException e) {
+                Log.error("Mapbox Directions nhiều điểm lỗi, dùng ước lượng", e);
+            }
+        }
+        JsonArray points = new JsonArray();
+        double km = 0;
+        for (int i = 0; i < pts.size(); i++) {
+            points.add(pair(pts.get(i)[0], pts.get(i)[1]));
+            if (i > 0) km += Geo.km(pts.get(i - 1)[0], pts.get(i - 1)[1], pts.get(i)[0], pts.get(i)[1]) * 1.3;
+        }
+        return Json.obj("distance_m", (int) Math.round(km * 1000), "duration_s", (int) Math.round(km / 25 * 3600),
+                "points", points, "source", "estimate");
+    }
+
     private static JsonArray features(JsonObject res) {
         return res.has("features") && res.get("features").isJsonArray() ? res.getAsJsonArray("features") : new JsonArray();
     }
@@ -170,9 +253,13 @@ public final class MapboxClient {
 
     private static String address(JsonObject f) {
         JsonObject prop = f.has("properties") ? f.getAsJsonObject("properties") : new JsonObject();
-        String full = Json.str(prop, "full_address", "");
-        if (!full.isBlank()) return full;
         String name = Json.str(prop, "name", "");
+        String full = Json.str(prop, "full_address", "");
+        if (!full.isBlank()) {
+            // POI: full_address không chứa tên quán -> ghép tên vào trước
+            return "poi".equals(Json.str(prop, "feature_type", "")) && !name.isBlank() && !full.startsWith(name)
+                    ? name + ", " + full : full;
+        }
         String ctx = Json.str(prop, "place_formatted", "");
         return ctx.isBlank() ? name : name + ", " + ctx;
     }

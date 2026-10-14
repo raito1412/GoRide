@@ -26,6 +26,9 @@ public class RidePanel extends JPanel {
     private final JLabel routeInfo = Ui.muted("Chọn điểm đón và điểm đến để xem giá");
     private final JToggleButton bike = choice(), car = choice();
     private final JComboBox<String> payment = Ui.codes("CASH", "WALLET");
+    private final VoucherBox voucher = new VoucherBox();
+    private final JLabel discountInfo = Ui.muted(" ");
+    private final JPanel mapSlot = new JPanel(new BorderLayout());
     private final JButton bookBtn;
     private final JPanel formBox = Ui.column();
 
@@ -80,9 +83,15 @@ public class RidePanel extends JPanel {
         formBox.add(vehicles);
         formBox.add(Box.createVerticalStrut(8));
         formBox.add(Ui.row(Ui.muted("Thanh toán:"), payment));
+        voucher.addActionListener(e -> requestQuote());
+        formBox.add(Ui.section("Thẻ giảm giá 🎟"));
+        formBox.add(Ui.grow(voucher));
+        formBox.add(discountInfo);
         bookBtn = Ui.button("Đặt xe", Theme.LAVENDER, this::book);
+        formBox.add(Box.createVerticalStrut(6));
         formBox.add(Ui.grow(bookBtn));
         renderChoices();
+        voucher.reload(net, null);
 
         // ----- theo dõi chuyến -----
         trackBox.setOpaque(false);
@@ -113,7 +122,14 @@ public class RidePanel extends JPanel {
         col.setOpaque(false);
         col.add(trackBox);
         col.add(formBox);
-        add(BaseFrame.vscroll(col));
+        JScrollPane left = BaseFrame.vscroll(col);
+        left.setPreferredSize(new Dimension(470, 100));
+        JPanel body = new JPanel(new BorderLayout(12, 0));
+        body.setOpaque(false);
+        body.setBorder(BorderFactory.createEmptyBorder(8, 4, 12, 0));
+        body.add(left, BorderLayout.WEST);
+        body.add(mapSlot);
+        add(body);
 
         net.on("RIDE_UPDATE", this::onRideUpdate);
         net.on("DRIVER_LOCATION", d -> {
@@ -132,6 +148,9 @@ public class RidePanel extends JPanel {
         });
         useMyLocation();
     }
+
+    /** Khung chính gắn bản đồ vào đây khi mở màn hình Đặt xe. */
+    public JPanel mapSlot() { return mapSlot; }
 
     // ---------- Điểm đón / đến ----------
 
@@ -168,7 +187,11 @@ public class RidePanel extends JPanel {
     }
 
     private JsonObject points() {
-        return Json.obj("pickup_lat", pickup.lat(), "pickup_lng", pickup.lng(), "drop_lat", drop.lat(), "drop_lng", drop.lng());
+        JsonObject o = Json.obj("pickup_lat", pickup.lat(), "pickup_lng", pickup.lng(),
+                "drop_lat", drop.lat(), "drop_lng", drop.lng());
+        String code = voucher.code();
+        if (code != null) o.addProperty("voucher_code", code);
+        return o;
     }
 
     private void requestQuote() {
@@ -191,19 +214,28 @@ public class RidePanel extends JPanel {
 
     private void renderChoices() {
         JsonObject prices = quote == null ? null : quote.getAsJsonObject("prices");
-        bike.setText(choiceText("🛵 Xe máy", prices == null ? "—" : Ui.money(prices, "BIKE")));
-        car.setText(choiceText("🚗 Ô tô", prices == null ? "—" : Ui.money(prices, "CAR")));
+        boolean hasVoucher = quote != null && quote.has("prices_after");
+        JsonObject after = hasVoucher ? quote.getAsJsonObject("prices_after") : prices;
+        bike.setText(choiceText("🛵 Xe máy", prices == null ? "—" : Ui.money(after, "BIKE"),
+                hasVoucher ? Ui.money(prices, "BIKE") : null));
+        car.setText(choiceText("🚗 Ô tô", prices == null ? "—" : Ui.money(after, "CAR"),
+                hasVoucher ? Ui.money(prices, "CAR") : null));
+        JsonObject v = voucher.selected();
+        discountInfo.setText(v == null ? " "
+                : "Đang dùng mã " + Json.str(v, "code") + " — giảm " + Json.integer(v, "percent", 0)
+                  + "%, tối đa " + Ui.money(Json.dbl(v, "max_discount", 0)));
         bookBtn.setEnabled(quote != null);
     }
 
-    private static String choiceText(String name, String price) {
-        return "<html><center>" + name + "<br><b>" + price + "</b></center></html>";
+    private static String choiceText(String name, String price, String struck) {
+        return "<html><center>" + name + "<br><b>" + price + "</b>"
+                + (struck == null ? "" : "<br><span style='color:#5A6472'><s>" + struck + "</s></span>")
+                + "</center></html>";
     }
 
     private static JToggleButton choice() {
         JToggleButton b = new JToggleButton();
         b.setBackground(Theme.SURFACE);
-        b.putClientProperty("JButton.buttonType", "roundRect");
         b.setPreferredSize(new Dimension(120, 64));
         return b;
     }
@@ -220,6 +252,7 @@ public class RidePanel extends JPanel {
         req.addProperty("payment_method", (String) payment.getSelectedItem());
         net.run(this, "RIDE_BOOK", req, r -> {
             JsonObject o = r.getAsJsonObject();
+            voucher.reload(net, null);
             showRide(o, o.get("points"));
             drawMap(true);
         });
@@ -246,6 +279,7 @@ public class RidePanel extends JPanel {
         trackBox.setVisible(false);
         formBox.setVisible(true);
         drop.clear();
+        voucher.reload(net, null);
         drawMap(true);
     }
 
@@ -308,13 +342,13 @@ public class RidePanel extends JPanel {
                         ? Geo.km(driverPos[0], driverPos[1], Json.dbl(ride, "pickup_lat", 0), Json.dbl(ride, "pickup_lng", 0))
                         : Geo.km(driverPos[0], driverPos[1], Json.dbl(ride, "drop_lat", 0), Json.dbl(ride, "drop_lng", 0));
                 String target = st.equals("ACCEPTED") ? "tới điểm đón" : "tới điểm đến";
-                h.append("<span style='color:#5E66C4'>Tài xế cách ").append(target).append(String.format(" %.1f km", km))
+                h.append("<span style='color:#0F4FD6'>Tài xế cách ").append(target).append(String.format(" %.1f km", km))
                         .append(" (~").append(Math.max(1, Math.round(km * 1.3 / 25 * 60))).append(" phút)</span><br>");
             }
         } else if (st.equals("SEARCHING")) {
-            h.append("<span style='color:#8B8AA6'>Đang tìm tài xế gần bạn...</span><br>");
+            h.append("<span style='color:#5A6472'>Đang tìm tài xế gần bạn...</span><br>");
         }
-        if (st.equals("CANCELLED")) h.append("<span style='color:#B24B66'>").append(Ui.esc(Json.str(ride, "cancel_reason", ""))).append("</span>");
+        if (st.equals("CANCELLED")) h.append("<span style='color:#B3161B'>").append(Ui.esc(Json.str(ride, "cancel_reason", ""))).append("</span>");
         if (st.equals("COMPLETED") && Json.has(ride, "my_stars")) h.append("Bạn đã đánh giá ").append(Ui.stars(Json.integer(ride, "my_stars", 0)));
         h.append("</div></html>");
         trackInfo.setText(h.toString());

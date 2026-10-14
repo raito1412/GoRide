@@ -70,6 +70,18 @@ public final class Db {
         return a.size() == 0 ? null : a.get(0).getAsJsonObject();
     }
 
+    /** Cột nhị phân đầu tiên của dòng đầu tiên (ảnh); null nếu không có dòng nào. */
+    public static byte[] scalarBytes(String sql, Object... params) {
+        try (Connection c = connect(); PreparedStatement ps = c.prepareStatement(sql)) {
+            bind(ps, params);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getBytes(1) : null;
+            }
+        } catch (SQLException e) {
+            throw new DbException(e);
+        }
+    }
+
     public static int update(String sql, Object... params) {
         try (Connection c = connect()) { return update(c, sql, params); }
         catch (SQLException e) { throw new DbException(e); }

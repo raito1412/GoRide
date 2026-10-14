@@ -27,7 +27,7 @@ public final class Ui {
                 {"ACTIVE", "Hoạt động"}, {"LOCKED", "Đã khóa"}, {"PAID", "Đã thanh toán"}, {"REFUNDED", "Đã hoàn tiền"},
                 {"BIKE", "Xe máy"}, {"CAR", "Ô tô"}, {"DELIVERY", "Phí giao đồ ăn"},
                 {"CASH", "Tiền mặt"}, {"WALLET", "Ví GoRide"}, {"RIDE", "Chuyến xe"}, {"FOOD", "Đồ ăn"},
-                {"USER", "Khách hàng"}, {"DRIVER", "Tài xế"}, {"ADMIN", "Quản trị"},
+                {"USER", "Khách hàng"}, {"DRIVER", "Tài xế"}, {"ADMIN", "Quản trị"}, {"RESTAURANT", "Quán ăn"},
         };
         for (String[] r : t) VI.put(r[0], r[1]);
     }
@@ -52,16 +52,38 @@ public final class Ui {
 
     // ---------- Thành phần ----------
 
+    /**
+     * Nút vuông. Truyền màu nhạt (Theme.MINT, ROSE...) thì nút được tô bằng bản đậm, chữ trắng;
+     * truyền Theme.SURFACE thì thành nút viền (nền trắng, viền xám đậm). Đổi màu về sau bằng
+     * setBackground cũng được quy đổi y như vậy.
+     */
     public static JButton button(String text, Color bg, Runnable action) {
-        JButton b = new JButton(text);
+        JButton b = new SolidButton(text);
         b.setBackground(bg);
-        b.setForeground(Theme.INK);
         b.setFocusPainted(false);
         b.setFont(b.getFont().deriveFont(Font.BOLD));
-        b.setBorder(BorderFactory.createEmptyBorder(8, 16, 8, 16));
         b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         if (action != null) b.addActionListener(e -> action.run());
         return b;
+    }
+
+    private static final class SolidButton extends JButton {
+        SolidButton(String text) { super(text); }
+
+        @Override
+        public void setBackground(Color bg) {
+            Color solid = bg == null ? null : Theme.deep(bg);
+            if (solid != null) {
+                super.setBackground(solid);
+                setForeground(Color.WHITE);
+                setBorder(new EmptyBorder(9, 16, 9, 16));
+            } else {
+                super.setBackground(bg);
+                setForeground(Theme.INK);
+                setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(Theme.MUTED), new EmptyBorder(8, 15, 8, 15)));
+            }
+        }
     }
 
     public static JLabel label(String text, float size, int style) {
@@ -114,12 +136,37 @@ public final class Ui {
         return p;
     }
 
+    /** Chỉ dùng trong các cột trên nền chung, nên tự vẽ nền Theme.BG cho gọn việc vẽ lại. */
     public static JPanel grow(Component c) {
         JPanel p = new JPanel(new BorderLayout());
-        p.setOpaque(false);
+        p.setBackground(Theme.BG);
         p.add(c);
         p.setMaximumSize(new Dimension(Integer.MAX_VALUE, c.getPreferredSize().height));
         return p;
+    }
+
+    /**
+     * Ô chỉ nhận chữ số, tối đa maxLen ký tự. Dán hay bộ gõ có thả chữ vào thì cũng bị lọc sạch,
+     * nên số điện thoại / mã OTP không bao giờ lẫn chữ của ô khác.
+     */
+    public static void digitsOnly(JTextField field, int maxLen) {
+        ((javax.swing.text.AbstractDocument) field.getDocument()).setDocumentFilter(
+                new javax.swing.text.DocumentFilter() {
+                    @Override
+                    public void insertString(FilterBypass fb, int off, String text, javax.swing.text.AttributeSet a)
+                            throws javax.swing.text.BadLocationException {
+                        replace(fb, off, 0, text, a);
+                    }
+
+                    @Override
+                    public void replace(FilterBypass fb, int off, int len, String text, javax.swing.text.AttributeSet a)
+                            throws javax.swing.text.BadLocationException {
+                        String digits = text == null ? "" : text.replaceAll("\\D", "");
+                        int room = maxLen - (fb.getDocument().getLength() - len);
+                        if (digits.length() > room) digits = digits.substring(0, Math.max(0, room));
+                        fb.replace(off, len, digits, a);
+                    }
+                });
     }
 
     public static JComboBox<String> codes(String... codes) {
@@ -133,31 +180,68 @@ public final class Ui {
         return box;
     }
 
-    /** Khối nền trắng bo góc. */
+    /**
+     * Khối vuông viền mảnh. Màu nền trắng/xám giữ nguyên; truyền màu nhấn (MINT, PEACH...) thì thẻ vẫn
+     * nền trắng nhưng có vạch màu đậm 4px ở mép trái để nhận diện, thay cho cả mảng màu pastel.
+     */
     public static class Card extends JPanel {
         private final Color fill;
+        private boolean hover;
 
         public Card(LayoutManager layout, Color fill) {
             super(layout);
             this.fill = fill;
             setOpaque(false);
-            setBorder(new EmptyBorder(14, 16, 14, 16));
+            setBorder(new EmptyBorder(14, Theme.deep(fill) != null ? 20 : 16, 14, 16));
+        }
+
+        /** Biến cả thẻ thành một nút bấm (kể cả khi bấm lên chữ bên trong). */
+        public void onClick(Runnable action) {
+            if (action == null) return;
+            java.awt.event.MouseAdapter m = new java.awt.event.MouseAdapter() {
+                @Override
+                public void mouseClicked(java.awt.event.MouseEvent e) { action.run(); }
+
+                @Override
+                public void mouseEntered(java.awt.event.MouseEvent e) {
+                    hover = true;
+                    repaint();
+                }
+
+                @Override
+                public void mouseExited(java.awt.event.MouseEvent e) {
+                    hover = false;
+                    repaint();
+                }
+            };
+            addMouseListener(m);
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            for (Component c : getComponents()) {
+                c.addMouseListener(m);
+                if (c instanceof Container inner) for (Component c2 : inner.getComponents()) c2.addMouseListener(m);
+            }
         }
 
         @Override
         protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(fill);
-            g2.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 18, 18);
-            g2.setColor(Theme.LINE);
-            g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 18, 18);
+            Color stripe = Theme.deep(fill);
+            Color base = stripe != null ? Theme.SURFACE : fill;
+            g2.setColor(hover ? Theme.mix(base, Theme.LAVENDER, 0.45f) : base);
+            g2.fillRect(0, 0, getWidth(), getHeight());
+            g2.setColor(hover ? Theme.LAVENDER_DEEP : Theme.LINE);
+            g2.drawRect(0, 0, getWidth() - 1, getHeight() - 1);
+            if (stripe != null) {
+                g2.setColor(stripe);
+                g2.fillRect(0, 0, 4, getHeight());
+            }
             g2.dispose();
             super.paintComponent(g);
         }
     }
 
-    /** Nhãn trạng thái dạng viên thuốc. */
+    /** Nhãn trạng thái dạng thẻ chữ nhật. */
     public static class Pill extends JLabel {
         public Pill() {
             setBorder(new EmptyBorder(4, 12, 4, 12));
@@ -176,10 +260,36 @@ public final class Ui {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setColor(getBackground());
-            g2.fillRoundRect(0, 0, getWidth(), getHeight(), getHeight(), getHeight());
+            g2.fillRect(0, 0, getWidth(), getHeight());
+            Color edge = Theme.deep(getBackground());
+            if (edge != null) {
+                g2.setColor(edge);
+                g2.fillRect(0, 0, 3, getHeight());
+            }
             g2.dispose();
             super.paintComponent(g);
         }
+    }
+
+    // ---------- Nhiều cửa sổ ----------
+
+    /** Số thứ tự cửa sổ khi chạy nhiều client một lúc (run.sh 4 -> 1..4); 0 = chạy lẻ. */
+    public static final int SLOT = Math.max(0, Integer.getInteger("goride.slot", 0));
+
+    /** Đặt cửa sổ giữa màn hình rồi xếp lệch theo SLOT để nhiều client không chồng khít lên nhau. */
+    public static void place(Window w) {
+        w.setLocationRelativeTo(null);
+        if (SLOT <= 1) return;
+        Rectangle screen = w.getGraphicsConfiguration().getBounds();
+        int step = SLOT - 1;
+        int x = Math.max(screen.x, Math.min(screen.x + screen.width - w.getWidth(), screen.x + 20 + step * 60));
+        int y = Math.max(screen.y, Math.min(screen.y + screen.height - w.getHeight(), screen.y + 20 + step * 40));
+        w.setLocation(x, y);
+    }
+
+    /** Tiêu đề cửa sổ kèm số thứ tự client, để phân biệt khi mở nhiều cửa sổ. */
+    public static String title(String t) {
+        return SLOT > 0 ? t + "  [#" + SLOT + "]" : t;
     }
 
     // ---------- Hộp thoại ----------
@@ -277,6 +387,85 @@ public final class Ui {
     /** Lấy giá trị số trong JsonElement an toàn. */
     public static double num(JsonElement e) {
         return e == null || e.isJsonNull() ? 0 : e.getAsDouble();
+    }
+
+    /** Nút lớn ở màn hình chính: emoji + tên + mô tả ngắn. */
+    public static Card tile(String emoji, String title, String subtitle, Color bg, Runnable action) {
+        Card c = new Card(new BorderLayout(16, 0), bg);
+        c.setBorder(new EmptyBorder(22, 26, 22, 22));
+        JLabel icon = new JLabel(emoji);
+        icon.setFont(icon.getFont().deriveFont(36f));
+        c.add(icon, BorderLayout.WEST);
+        JPanel text = new JPanel(new GridLayout(2, 1, 0, 2));
+        text.setOpaque(false);
+        text.add(label(title, 16f, Font.BOLD));
+        text.add(muted("<html><div style='width:330px'>" + esc(subtitle) + "</div></html>"));
+        c.add(text);
+        c.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        c.onClick(action);
+        return c;
+    }
+
+    /** Hàng tiêu đề của một bước: "Bước 2 · Chọn món" + phần phụ bên phải. */
+    public static JPanel stepHeader(String step, String title, Component... right) {
+        JPanel p = new JPanel(new BorderLayout());
+        p.setBackground(Theme.BG); // tự vẽ nền: hàng tiêu đề có thể chứa ô tìm kiếm
+        p.setBorder(new EmptyBorder(4, 0, 10, 0));
+        JPanel left = new JPanel(new GridLayout(2, 1, 0, 2));
+        left.setBackground(Theme.BG);
+        JLabel s = muted(step);
+        s.setFont(s.getFont().deriveFont(Font.BOLD, 11.5f));
+        left.add(s);
+        left.add(label(title, 19f, Font.BOLD));
+        p.add(left, BorderLayout.WEST);
+        if (right.length > 0) {
+            JPanel r = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+            r.setBackground(Theme.BG);
+            for (Component c : right) r.add(c);
+            p.add(r, BorderLayout.EAST);
+        }
+        return p;
+    }
+
+    /** Lưới thẻ cuộn dọc, số cột cố định. */
+    public static JPanel grid(int columns) {
+        JPanel g = new JPanel(new GridLayout(0, columns, 12, 12));
+        g.setOpaque(false);
+        return g;
+    }
+
+    /** Emoji đại diện khi món/quán chưa có ảnh, chọn theo loại món. */
+    public static String emojiFor(String category) {
+        String c = category == null ? "" : category.toLowerCase();
+        if (c.contains("phở") || c.contains("bún") || c.contains("hủ tiếu") || c.contains("mì")) return "🍜";
+        if (c.contains("cơm")) return "🍚";
+        if (c.contains("bánh mì")) return "🥖";
+        if (c.contains("lẩu") || c.contains("nướng")) return "🍲";
+        if (c.contains("chay")) return "🥗";
+        if (c.contains("trà")) return "🧋";
+        if (c.contains("cà phê")) return "☕";
+        if (c.contains("tráng miệng") || c.contains("chè")) return "🍧";
+        if (c.contains("ăn vặt")) return "🍢";
+        return "🍽";
+    }
+
+    /** Ô ảnh vuông: hiện ảnh nếu có image_id, không thì nền pastel + emoji. */
+    public static JLabel photo(com.goride.client.Net net, JsonObject src, String category, int w, int h) {
+        JLabel l = new JLabel(emojiFor(category), SwingConstants.CENTER);
+        l.setFont(l.getFont().deriveFont(Math.min(w, h) * 0.45f));
+        l.setPreferredSize(new Dimension(w, h));
+        l.setMinimumSize(new Dimension(w, h));
+        l.setOpaque(true);
+        l.setBackground(Theme.ROW_ALT);
+        l.setBorder(BorderFactory.createLineBorder(Theme.LINE));
+        if (Json.has(src, "image_id")) {
+            long id = src.get("image_id").getAsLong();
+            ImageStore.load(net, id, w - 2, h - 2, icon -> {
+                l.setText("");
+                l.setIcon(icon);
+            });
+        }
+        return l;
     }
 
     /** Ô thống kê: tiêu đề nhỏ + giá trị lớn. */

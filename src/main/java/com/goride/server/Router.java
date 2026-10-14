@@ -11,9 +11,9 @@ import java.util.Set;
  * Lệnh bắt đầu bằng ADMIN_ chỉ cho Admin, DRIVER_ chỉ cho Driver, còn lại (trừ nhóm COMMON) cho User.
  */
 public final class Router {
-    private static final Set<String> PUBLIC = Set.of("PING", "LOGIN", "REGISTER");
+    private static final Set<String> PUBLIC = Set.of("PING", "LOGIN", "REGISTER", "REGISTER_VERIFY", "REGISTER_RESEND");
     private static final Set<String> COMMON = Set.of("LOGOUT", "PROFILE_GET", "PROFILE_UPDATE",
-            "GEO_SEARCH", "GEO_DETAIL", "GEO_REVERSE", "GEO_ROUTE");
+            "GEO_SEARCH", "GEO_DETAIL", "GEO_REVERSE", "GEO_ROUTE", "IMAGE_UPLOAD", "IMAGE_GET");
 
     private Router() {}
 
@@ -30,10 +30,16 @@ public final class Router {
 
             // ----- Tài khoản -----
             case "REGISTER" -> AuthService.register(d);
+            case "REGISTER_VERIFY" -> AuthService.registerVerify(d);
+            case "REGISTER_RESEND" -> AuthService.registerResend(d);
             case "LOGIN" -> AuthService.login(c, d);
             case "LOGOUT" -> AuthService.logout(c);
             case "PROFILE_GET" -> AuthService.profile(c.userId);
             case "PROFILE_UPDATE" -> AuthService.updateProfile(c, d);
+
+            // ----- Ảnh (quán ăn / món ăn) -----
+            case "IMAGE_UPLOAD" -> Images.upload(d);
+            case "IMAGE_GET" -> Images.get(Json.reqLong(d, "id"));
 
             // ----- Bản đồ (Mapbox) -----
             case "GEO_SEARCH" -> MapboxClient.search(Json.req(d, "input", "Từ khóa"),
@@ -44,7 +50,7 @@ public final class Router {
                     Json.reqDbl(d, "to_lat"), Json.reqDbl(d, "to_lng"), Json.str(d, "vehicle", "bike"));
 
             // ----- User: đặt xe -----
-            case "RIDE_QUOTE" -> RideService.quote(d);
+            case "RIDE_QUOTE" -> RideService.quote(c, d);
             case "RIDE_BOOK" -> RideService.book(c, d);
             case "RIDE_CANCEL" -> RideService.cancelByUser(c, d);
             case "RIDE_CURRENT" -> RideService.currentForUser(c.userId);
@@ -53,12 +59,27 @@ public final class Router {
             // ----- User: đồ ăn -----
             case "RESTAURANT_LIST" -> FoodService.restaurants();
             case "MENU_LIST" -> FoodService.menu(Json.reqLong(d, "restaurant_id"));
-            case "FOOD_QUOTE" -> FoodService.quote(d);
+            case "FOOD_QUOTE" -> FoodService.quote(c, d);
             case "FOOD_ORDER" -> FoodService.order(c, d);
             case "FOOD_CANCEL" -> FoodService.cancelByUser(c, d);
             case "FOOD_CURRENT" -> FoodService.currentForUser(c.userId);
             case "FOOD_HISTORY" -> FoodService.history("o.user_id", c.userId);
             case "FOOD_DETAIL" -> FoodService.detailForUser(c.userId, Json.reqLong(d, "id"));
+
+            // ----- User: đăng ký mở quán ăn (chờ Admin duyệt) -----
+            case "MERCHANT_APPLY" -> MerchantService.apply(c, d);
+            case "MERCHANT_MINE" -> MerchantService.mine(c.userId);
+            case "MERCHANT_DETAIL" -> MerchantService.mineDetail(c.userId, Json.reqLong(d, "id"));
+            case "MERCHANT_WITHDRAW" -> MerchantService.withdraw(c.userId, Json.reqLong(d, "id"));
+            case "MERCHANT_SHOPS" -> MerchantService.myShops(c.userId);
+            case "MERCHANT_ORDERS" -> MerchantService.shopOrders(c.userId);
+            case "MERCHANT_ORDER_ACCEPT" -> MerchantService.acceptOrder(c, Json.reqLong(d, "id"));
+            case "MERCHANT_ORDER_REJECT" -> MerchantService.rejectOrder(c, d);
+            case "MERCHANT_REVIEWS" -> MerchantService.shopReviews(c.userId);
+            case "MERCHANT_STATEMENT" -> StatementService.merchant(c.userId, d);
+
+            // ----- User: ví thẻ giảm giá -----
+            case "VOUCHER_LIST" -> VoucherService.wallet(c.userId);
 
             // ----- User: thanh toán / đánh giá -----
             case "PAYMENT_LIST" -> AccountService.payments(c.userId);
@@ -67,6 +88,7 @@ public final class Router {
             // ----- Driver -----
             case "DRIVER_ONLINE" -> AuthService.setOnline(c, d);
             case "DRIVER_VEHICLE_UPDATE" -> AuthService.updateVehicle(c, d);
+            case "DRIVER_SET_LOCATION" -> AuthService.setLocation(c, d);
             case "DRIVER_PENDING" -> DriverJobs.pending(c);
             case "DRIVER_CURRENT" -> DriverJobs.current(c.userId);
             case "DRIVER_RIDE_ACCEPT" -> RideService.accept(c, d);
@@ -79,6 +101,8 @@ public final class Router {
                     "orders", FoodService.history("o.driver_id", c.userId));
             case "DRIVER_EARNINGS" -> AccountService.earnings(c.userId);
             case "DRIVER_REVIEWS" -> AccountService.driverReviews(c.userId);
+            case "DRIVER_STATEMENT" -> StatementService.driver(c.userId, d);
+            case "DRIVER_ROUTE_PLAN" -> RoutePlanner.plan(c.userId);
 
             // ----- Admin -----
             case "ADMIN_DASHBOARD" -> AdminService.dashboard();
@@ -89,6 +113,8 @@ public final class Router {
             case "ADMIN_RIDE_CANCEL" -> RideService.cancelByAdmin(Json.reqLong(d, "id"));
             case "ADMIN_FOOD_CANCEL" -> FoodService.cancelByAdmin(Json.reqLong(d, "id"));
             case "ADMIN_FOOD_DETAIL" -> FoodService.view(Json.reqLong(d, "id"));
+            case "ADMIN_APPLICATION_DETAIL" -> MerchantService.detail(Json.reqLong(d, "id"));
+            case "ADMIN_APPLICATION_REVIEW" -> MerchantService.review(d);
             case "ADMIN_RESTAURANT_SAVE" -> AdminService.saveRestaurant(d);
             case "ADMIN_RESTAURANT_DELETE" -> AdminService.deleteRestaurant(Json.reqLong(d, "id"));
             case "ADMIN_MENU_SAVE" -> AdminService.saveMenuItem(d);

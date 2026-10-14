@@ -18,36 +18,88 @@ public final class AuthService {
 
     private AuthService() {}
 
+    /**
+     * Bước 1: kiểm tra hồ sơ đăng ký rồi gửi mã OTP tới email. Tài khoản CHƯA được tạo ở bước này —
+     * hồ sơ (mật khẩu đã băm) nằm tạm trong bảng email_otps cho tới khi nhập đúng mã.
+     */
     static JsonObject register(JsonObject d) {
+        JsonObject form = validateRegistration(d);
+        String email = Json.str(form, "email");
+        return OtpService.start(email, form, Json.str(form, "full_name"));
+    }
+
+    /** Bước 2: nhập mã OTP -> tạo tài khoản thật. */
+    static JsonObject registerVerify(JsonObject d) {
+        String email = email(Json.req(d, "email", "Email"));
+        String code = Json.req(d, "code", "Mã xác thực");
+        if (!code.trim().matches("\\d{6}")) throw new AppException("Mã xác thực gồm 6 chữ số");
+        JsonObject form = OtpService.consume(email, code);
+
+        // kiểm tra lại lần cuối: trong 5 phút chờ có thể đã có người khác dùng số/biển số này
+        String phone = Json.str(form, "phone");
+        boolean driver = "DRIVER".equals(Json.str(form, "role"));
+        if (Db.one("SELECT id FROM users WHERE phone=?", phone) != null)
+            throw new AppException("Số điện thoại đã được đăng ký");
+        if (driver && Db.one("SELECT user_id FROM drivers WHERE plate_number=?", Json.str(form, "plate_number")) != null)
+            throw new AppException("Biển số xe đã được đăng ký");
+
+        long id = Db.tx(c -> {
+            long uid = Db.insert(c, "INSERT INTO users(role, full_name, phone, email, password_hash) VALUES (?,?,?,?,?)",
+                    Json.str(form, "role"), Json.str(form, "full_name"), phone, email, Json.str(form, "password_hash"));
+            if (driver) {
+                Db.update(c, "INSERT INTO drivers(user_id, vehicle_type, plate_number, vehicle_brand, vehicle_color, license_number) VALUES (?,?,?,?,?,?)",
+                        uid, Json.str(form, "vehicle_type"), Json.str(form, "plate_number"),
+                        Json.str(form, "vehicle_brand"), Json.str(form, "vehicle_color"), Json.str(form, "license_number"));
+            }
+            return uid;
+        });
+        Log.info("Đăng ký mới #" + id + " (" + Json.str(form, "role") + ", email đã xác thực: " + email + ")");
+        return Json.obj("id", id, "message", driver
+                ? "Xác thực email thành công! Tài khoản tài xế cần Admin duyệt trước khi nhận chuyến."
+                : "Xác thực email thành công! Bạn có thể đăng nhập ngay.");
+    }
+
+    /** Gửi lại mã OTP cho hồ sơ đang chờ. */
+    static JsonObject registerResend(JsonObject d) {
+        return OtpService.resend(email(Json.req(d, "email", "Email")));
+    }
+
+    /** Kiểm tra toàn bộ hồ sơ đăng ký, trả về bản đã chuẩn hóa với mật khẩu đã băm. */
+    private static JsonObject validateRegistration(JsonObject d) {
         String role = Json.str(d, "role", "USER");
         if (!role.equals("USER") && !role.equals("DRIVER")) throw new AppException("Chỉ đăng ký được tài khoản Khách hàng hoặc Tài xế");
         String name = Json.req(d, "full_name", "Họ tên");
         String phone = Json.req(d, "phone", "Số điện thoại");
         String password = Json.req(d, "password", "Mật khẩu");
-        String email = Json.str(d, "email", "").trim();
+        String email = email(Json.req(d, "email", "Email"));
         if (!phone.matches("0\\d{9}")) throw new AppException("Số điện thoại phải gồm 10 chữ số, bắt đầu bằng 0");
         if (password.length() < 6) throw new AppException("Mật khẩu tối thiểu 6 ký tự");
-        if (Db.one("SELECT id FROM users WHERE phone=?", phone) != null) throw new AppException("Số điện thoại đã được đăng ký");
+        if (Db.one("SELECT id FROM users WHERE phone=?", phone) != null)
+            throw new AppException("Số điện thoại này đã có tài khoản hoàn tất đăng ký. Hãy đăng nhập, hoặc dùng số khác.");
+        if (Db.one("SELECT id FROM users WHERE email=?", email) != null)
+            throw new AppException("Email này đã gắn với một tài khoản khác. Hãy dùng email khác.");
 
-        boolean driver = role.equals("DRIVER");
-        String vehicle = driver ? vehicleType(Json.str(d, "vehicle_type", "BIKE")) : null;
-        String plate = driver ? Json.req(d, "plate_number", "Biển số xe").toUpperCase() : null;
-        if (driver && Db.one("SELECT user_id FROM drivers WHERE plate_number=?", plate) != null)
-            throw new AppException("Biển số xe đã được đăng ký");
+        JsonObject form = Json.obj("role", role, "full_name", name, "phone", phone, "email", email,
+                "password_hash", Passwords.hash(password));
+        if (role.equals("DRIVER")) {
+            String plate = Json.req(d, "plate_number", "Biển số xe").toUpperCase();
+            if (Db.one("SELECT user_id FROM drivers WHERE plate_number=?", plate) != null)
+                throw new AppException("Biển số xe đã được đăng ký");
+            form.addProperty("vehicle_type", vehicleType(Json.str(d, "vehicle_type", "BIKE")));
+            form.addProperty("plate_number", plate);
+            Json.put(form, "vehicle_brand", Json.str(d, "vehicle_brand"));
+            Json.put(form, "vehicle_color", Json.str(d, "vehicle_color"));
+            Json.put(form, "license_number", Json.str(d, "license_number"));
+        }
+        return form;
+    }
 
-        long id = Db.tx(c -> {
-            long uid = Db.insert(c, "INSERT INTO users(role, full_name, phone, email, password_hash) VALUES (?,?,?,?,?)",
-                    role, name, phone, email.isEmpty() ? null : email, Passwords.hash(password));
-            if (driver) {
-                Db.update(c, "INSERT INTO drivers(user_id, vehicle_type, plate_number, vehicle_brand, vehicle_color, license_number) VALUES (?,?,?,?,?,?)",
-                        uid, vehicle, plate, Json.str(d, "vehicle_brand"), Json.str(d, "vehicle_color"), Json.str(d, "license_number"));
-            }
-            return uid;
-        });
-        Log.info("Đăng ký mới #" + id + " (" + role + ")");
-        return Json.obj("id", id, "message", driver
-                ? "Đăng ký thành công. Tài khoản tài xế cần Admin duyệt trước khi nhận chuyến."
-                : "Đăng ký thành công. Bạn có thể đăng nhập ngay.");
+    /** Email phải hợp lệ vì mã xác thực được gửi tới đó. */
+    private static String email(String raw) {
+        String email = raw.trim().toLowerCase();
+        if (!email.matches("[\\w.+-]+@[\\w-]+(\\.[\\w-]+)+")) throw new AppException("Email không hợp lệ");
+        if (email.length() > 120) throw new AppException("Email quá dài");
+        return email;
     }
 
     static JsonObject login(ClientHandler c, JsonObject d) {
@@ -139,6 +191,19 @@ public final class AuthService {
         c.rejectedOrders.clear();
         Db.update("UPDATE drivers SET is_online=? WHERE user_id=?", online ? 1 : 0, c.userId);
         return Json.obj("online", online);
+    }
+
+    /**
+     * Tài xế báo vị trí qua TCP. Trước đây vị trí chỉ tới server bằng UDP, nên khi gói UDP không
+     * đến được (khác máy, firewall chặn) thì server vẫn tính bán kính theo vị trí lúc đăng nhập
+     * và tài xế không bao giờ thấy yêu cầu nào.
+     */
+    static JsonObject setLocation(ClientHandler c, JsonObject d) {
+        double lat = Json.reqDbl(d, "lat"), lng = Json.reqDbl(d, "lng");
+        if (Math.abs(lat) > 90 || Math.abs(lng) > 180) throw new AppException("Toạ độ không hợp lệ");
+        Sessions.LOCATIONS.put(c.userId, new double[]{lat, lng});
+        Db.update("UPDATE drivers SET last_lat=?, last_lng=? WHERE user_id=?", lat, lng, c.userId);
+        return Json.obj("lat", lat, "lng", lng);
     }
 
     static String vehicleType(String v) {

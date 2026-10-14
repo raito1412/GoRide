@@ -1,7 +1,6 @@
 package com.goride.client.ui;
 
 import com.goride.client.Net;
-import com.goride.common.Config;
 import com.goride.common.Json;
 import com.google.gson.JsonObject;
 
@@ -27,9 +26,17 @@ public class LoginFrame extends JFrame {
     private final JComboBox<String> rVehicle = Ui.codes("BIKE", "CAR");
     private final JTextField rPlate = new JTextField(20), rBrand = new JTextField(20), rColor = new JTextField(20), rLicense = new JTextField(20);
     private final JPanel driverBox = new JPanel(new GridBagLayout());
+    // xác thực email bằng OTP
+    private final JTextField otpCode = new JTextField(20);
+    private final JLabel otpTarget = Ui.muted(" ");
+    private final JLabel otpCountdown = Ui.label("05:00", 20f, Font.BOLD);
+    private JButton resendBtn;
+    private Timer otpTimer;
+    private String pendingEmail;
+    private int secondsLeft, resendLeft;
 
     public LoginFrame() {
-        super("GoRide");
+        super(Ui.title("GoRide"));
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         JPanel root = new JPanel(new GridBagLayout());
         root.setBackground(Theme.BG);
@@ -37,16 +44,17 @@ public class LoginFrame extends JFrame {
         Ui.Card card = new Ui.Card(new BorderLayout(0, 12), Theme.SURFACE);
         card.setBorder(new EmptyBorder(28, 32, 24, 32));
         JPanel head = new JPanel(new GridLayout(2, 1));
-        head.setOpaque(false);
+        head.setBackground(Theme.SURFACE);
         JLabel logo = Ui.label("GoRide", 30f, Font.BOLD);
         logo.setForeground(Theme.LAVENDER_DEEP);
         head.add(logo);
-        head.add(Ui.muted("Đặt xe & giao đồ ăn · Server " + Config.serverHost() + ":" + Config.tcpPort()));
+        head.add(Ui.muted("Đặt xe & giao đồ ăn"));
         card.add(head, BorderLayout.NORTH);
 
-        body.setOpaque(false);
+        body.setBackground(Theme.SURFACE);
         body.add(buildLogin(), "login");
         body.add(buildRegister(), "register");
+        body.add(buildOtp(), "otp");
         card.add(body);
         status.setForeground(Theme.ROSE_DEEP);
         card.add(status, BorderLayout.SOUTH);
@@ -55,12 +63,13 @@ public class LoginFrame extends JFrame {
         setContentPane(root);
         setSize(560, 720);
         setMinimumSize(new Dimension(480, 600));
-        setLocationRelativeTo(null);
+        Ui.place(this);
     }
 
     private JPanel buildLogin() {
         JPanel p = formPanel();
-        phone.putClientProperty("JTextField.placeholderText", "0900000000");
+        phone.putClientProperty("JTextField.placeholderText", "Nhập số điện thoại (10 số)");
+        Ui.digitsOnly(phone, 11);
         addRow(p, "Số điện thoại", phone);
         addRow(p, "Mật khẩu", password);
         password.addActionListener(e -> login());
@@ -69,7 +78,7 @@ public class LoginFrame extends JFrame {
         addWide(p, link("Chưa có tài khoản? Đăng ký", () -> show("register")));
 
         JPanel demo = new JPanel(new GridLayout(0, 1, 0, 4));
-        demo.setOpaque(false);
+        demo.setBackground(Theme.SURFACE);
         demo.setBorder(new EmptyBorder(16, 0, 0, 0));
         demo.add(Ui.muted("Tài khoản demo (bấm để điền):"));
         demo.add(demoLink("Khách hàng · 0911111111 / 123456", "0911111111", "123456", Theme.LAVENDER_DEEP));
@@ -89,14 +98,16 @@ public class LoginFrame extends JFrame {
         addRow(p, "Loại tài khoản", roles);
         addRow(p, "Họ tên", rName);
         addRow(p, "Số điện thoại", rPhone);
-        addRow(p, "Email", rEmail);
+        Ui.digitsOnly(rPhone, 11);
+        rEmail.putClientProperty("JTextField.placeholderText", "Nhận mã xác thực — bắt buộc");
+        addRow(p, "Email (Gmail)", rEmail);
         addRow(p, "Mật khẩu", rPass);
 
-        driverBox.setOpaque(false);
+        driverBox.setBackground(Theme.SURFACE);
         GridBagConstraints c = new GridBagConstraints();
         String[] labels = {"Loại xe", "Biển số", "Hãng xe", "Màu xe", "Số GPLX"};
         JComponent[] inputs = {rVehicle, rPlate, rBrand, rColor, rLicense};
-        rPlate.putClientProperty("JTextField.placeholderText", "59X1-123.45");
+        rPlate.putClientProperty("JTextField.placeholderText", "Ví dụ: 59X1-123.45");
         for (int i = 0; i < labels.length; i++) {
             c.gridx = 0; c.gridy = i; c.anchor = GridBagConstraints.WEST; c.insets = new Insets(4, 0, 4, 12);
             c.fill = GridBagConstraints.NONE; c.weightx = 0;
@@ -106,12 +117,120 @@ public class LoginFrame extends JFrame {
         }
         driverBox.setVisible(false);
         addWide(p, driverBox);
-        asUser.addActionListener(e -> driverBox.setVisible(false));
-        asDriver.addActionListener(e -> driverBox.setVisible(true));
+        asUser.addActionListener(e -> showDriverFields(false));
+        asDriver.addActionListener(e -> showDriverFields(true));
 
         addWide(p, Ui.button("Tạo tài khoản", Theme.MINT, this::register));
         addWide(p, link("← Quay lại đăng nhập", () -> show("login")));
         return wrapTop(p);
+    }
+
+    private JPanel buildOtp() {
+        JPanel p = formPanel();
+        addWide(p, Ui.label("Xác thực email", 20f, Font.BOLD));
+        addWide(p, otpTarget);
+        otpCode.putClientProperty("JTextField.placeholderText", "6 chữ số");
+        Ui.digitsOnly(otpCode, 6);
+        otpCode.setFont(otpCode.getFont().deriveFont(Font.BOLD, 22f));
+        otpCode.setHorizontalAlignment(SwingConstants.CENTER);
+        otpCode.addActionListener(e -> verifyOtp());
+        // chỉ dùng addWide ở thẻ này: addRow đánh số hàng theo cách khác nên trộn hai kiểu sẽ chồng dòng
+        JPanel codeBox = new JPanel(new BorderLayout(0, 4));
+        codeBox.setOpaque(false);
+        codeBox.add(Ui.label("Nhập mã trong email", 12.5f, Font.BOLD), BorderLayout.NORTH);
+        codeBox.add(otpCode);
+        addWide(p, codeBox);
+        addWide(p, Ui.row(Ui.muted("Mã hết hạn sau:"), otpCountdown));
+        addWide(p, Ui.button("Xác nhận", Theme.MINT, this::verifyOtp));
+        resendBtn = Ui.button("Gửi lại mã", Theme.BUTTER, this::resendOtp);
+        addWide(p, resendBtn);
+        addWide(p, link("← Sửa lại thông tin đăng ký", () -> {
+            stopOtpTimer();
+            show("register");
+        }));
+        return wrapTop(p);
+    }
+
+    /** Đếm ngược hiệu lực của mã và thời gian chờ được gửi lại. */
+    private void startOtpCountdown(int expiresIn, int resendAfter) {
+        secondsLeft = expiresIn;
+        resendLeft = resendAfter;
+        if (otpTimer == null) otpTimer = new Timer(1000, e -> tickOtp());
+        otpTimer.start();
+        tickOtp();
+    }
+
+    private void stopOtpTimer() {
+        if (otpTimer != null) otpTimer.stop();
+    }
+
+    private void tickOtp() {
+        boolean expired = secondsLeft <= 0;
+        otpCountdown.setText(expired ? "đã hết hạn" : String.format("%02d:%02d", secondsLeft / 60, secondsLeft % 60));
+        otpCountdown.setForeground(expired || secondsLeft <= 30 ? Theme.ROSE_DEEP : Theme.INK);
+        resendBtn.setText(resendLeft > 0 ? "Gửi lại mã sau " + resendLeft + "s" : "Gửi lại mã");
+        resendBtn.setEnabled(resendLeft <= 0);
+        if (secondsLeft > 0) secondsLeft--;
+        if (resendLeft > 0) resendLeft--;
+    }
+
+    private void showOtpScreen(JsonObject res, String fallbackEmail) {
+        busy(false, " ");
+        pendingEmail = Json.str(res, "email", fallbackEmail);
+        otpTarget.setText("<html>Mã gồm 6 số đã được gửi tới<br><b>" + Ui.esc(pendingEmail) + "</b></html>");
+        otpCode.setText("");
+        show("otp");
+        startOtpCountdown(Json.integer(res, "expires_in_s", 300), Json.integer(res, "resend_after_s", 60));
+        otpCode.requestFocus();
+        if (Json.has(res, "dev_hint")) Ui.info(this, Json.str(res, "dev_hint"));
+    }
+
+    private void verifyOtp() {
+        String code = otpCode.getText().trim();
+        if (!code.matches("\\d{6}")) {
+            busy(false, "Mã xác thực gồm đúng 6 chữ số");
+            return;
+        }
+        JsonObject req = Json.obj("email", pendingEmail, "code", code);
+        busy(true, "Đang xác thực...");
+        connection().thenAccept(n -> {
+            if (n == null) return;
+            try {
+                JsonObject res = n.call("REGISTER_VERIFY", req).getAsJsonObject();
+                SwingUtilities.invokeLater(() -> {
+                    stopOtpTimer();
+                    busy(false, " ");
+                    Ui.info(this, Json.str(res, "message"));
+                    phone.setText(rPhone.getText().trim());
+                    password.setText("");
+                    show("login");
+                    password.requestFocus();
+                });
+            } catch (RuntimeException e) {
+                fail(e.getMessage());
+            }
+        });
+    }
+
+    private void resendOtp() {
+        JsonObject req = Json.obj("email", pendingEmail);
+        busy(true, "Đang gửi lại mã...");
+        connection().thenAccept(n -> {
+            if (n == null) return;
+            try {
+                JsonObject res = n.call("REGISTER_RESEND", req).getAsJsonObject();
+                SwingUtilities.invokeLater(() -> showOtpScreen(res, pendingEmail));
+            } catch (RuntimeException e) {
+                fail(e.getMessage());
+            }
+        });
+    }
+
+    /** Hiện/ẩn nhóm ô của tài xế rồi vẽ lại cả thẻ cho sạch. */
+    private void showDriverFields(boolean show) {
+        driverBox.setVisible(show);
+        body.revalidate();
+        body.repaint();
     }
 
     // ---------- Hành động ----------
@@ -132,6 +251,10 @@ public class LoginFrame extends JFrame {
     }
 
     private void register() {
+        if (rEmail.getText().trim().isEmpty()) {
+            busy(false, "Nhập email để nhận mã xác thực");
+            return;
+        }
         JsonObject req = Json.obj("role", asDriver.isSelected() ? "DRIVER" : "USER",
                 "full_name", rName.getText().trim(), "phone", rPhone.getText().trim(),
                 "email", rEmail.getText().trim(), "password", new String(rPass.getPassword()));
@@ -142,19 +265,12 @@ public class LoginFrame extends JFrame {
             req.addProperty("vehicle_color", rColor.getText().trim());
             req.addProperty("license_number", rLicense.getText().trim());
         }
-        busy(true, "Đang tạo tài khoản...");
+        busy(true, "Đang gửi mã xác thực...");
         connection().thenAccept(n -> {
             if (n == null) return;
             try {
                 JsonObject res = n.call("REGISTER", req).getAsJsonObject();
-                SwingUtilities.invokeLater(() -> {
-                    busy(false, " ");
-                    Ui.info(this, Json.str(res, "message"));
-                    phone.setText(rPhone.getText().trim());
-                    password.setText("");
-                    show("login");
-                    password.requestFocus();
-                });
+                SwingUtilities.invokeLater(() -> showOtpScreen(res, rEmail.getText().trim().toLowerCase()));
             } catch (RuntimeException e) {
                 fail(e.getMessage());
             }
@@ -172,7 +288,7 @@ public class LoginFrame extends JFrame {
                 net = n;
                 return n;
             } catch (Exception e) {
-                fail("Không kết nối được server " + Config.serverHost() + ":" + Config.tcpPort() + " — hãy chạy server trước");
+                fail("Chưa kết nối được. Hãy kiểm tra lại đường truyền rồi thử lại.");
                 return null;
             }
         });
@@ -212,15 +328,19 @@ public class LoginFrame extends JFrame {
 
     // ---------- Bố cục ----------
 
+    /**
+     * Panel của biểu mẫu tự vẽ nền trắng của thẻ. Nếu để trong suốt, Swing phải nhờ tổ tiên
+     * cách 4-5 tầng vẽ lại nền mỗi khi một ô đổi nội dung hoặc bố cục xê dịch — dễ sót nét chữ cũ.
+     */
     private static JPanel formPanel() {
         JPanel p = new JPanel(new GridBagLayout());
-        p.setOpaque(false);
+        p.setBackground(Theme.SURFACE);
         return p;
     }
 
     private static JPanel wrapTop(JPanel p) {
         JPanel w = new JPanel(new BorderLayout());
-        w.setOpaque(false);
+        w.setBackground(Theme.SURFACE);
         w.add(p, BorderLayout.NORTH);
         return w;
     }

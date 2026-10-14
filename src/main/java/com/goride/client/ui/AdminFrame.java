@@ -19,7 +19,8 @@ public class AdminFrame extends BaseFrame {
     // dashboard
     private final JLabel sUsers = new JLabel("—"), sDrivers = new JLabel("—"), sOnline = new JLabel("—"),
             sRides = new JLabel("—"), sOrders = new JLabel("—"), sActive = new JLabel("—"),
-            sRevenueToday = new JLabel("—"), sRevenue = new JLabel("—"), sCommission = new JLabel("—");
+            sRevenueToday = new JLabel("—"), sRevenue = new JLabel("—"), sCommission = new JLabel("—"),
+            sShops = new JLabel("—");
     private final RevenueChart chart = new RevenueChart();
     private final DataTable online = new DataTable("id|#", "full_name|Tài xế", "vehicle_type|Xe|status", "job|Đang làm");
 
@@ -33,8 +34,12 @@ public class AdminFrame extends BaseFrame {
             "vehicle_type|Xe|status", "pickup_address|Điểm đón", "drop_address|Điểm đến", "distance_m|Quãng đường|km",
             "price|Giá|money", "payment_method|Thanh toán|status", "status|Trạng thái|status");
     private final JComboBox<String> rideFilter = new JComboBox<>(new String[]{"Đang chạy", "Tất cả"});
+    private final DataTable applications = new DataTable("id|#", "created_at|Gửi lúc|time", "name|Tên quán",
+            "category|Loại", "address|Địa chỉ", "owner_name|Chủ quán", "owner_phone|SĐT", "item_count|Số món",
+            "status|Trạng thái|status", "admin_note|Ghi chú");
+    private final JComboBox<String> appFilter = new JComboBox<>(new String[]{"Chờ duyệt", "Tất cả"});
     private final DataTable restaurants = new DataTable("id|#", "name|Tên", "category|Loại", "address|Địa chỉ",
-            "phone|SĐT", "lat|Lat", "lng|Lng", "is_open|Mở cửa|bool");
+            "phone|SĐT", "owner_name|Chủ quán", "lat|Lat", "lng|Lng", "is_open|Mở cửa|bool");
     private final DataTable menu = new DataTable("id|#", "name|Món", "description|Mô tả", "price|Giá|money", "is_available|Còn bán|bool");
     private final JLabel menuTitle = Ui.label("Thực đơn (chọn nhà hàng)", 13f, Font.BOLD);
     private final DataTable orders = new DataTable("id|#", "created_at|Thời gian|time", "user_name|Khách",
@@ -45,7 +50,8 @@ public class AdminFrame extends BaseFrame {
     private final DataTable payments = new DataTable("id|#", "created_at|Thời gian|time", "user_name|Khách",
             "ref_type|Loại|status", "ref_id|Mã", "amount|Số tiền|money", "method|Hình thức|status", "status|Trạng thái|status");
     private final DataTable reviews = new DataTable("id|#", "created_at|Thời gian|time", "user_name|Khách",
-            "driver_name|Tài xế", "ref_type|Loại|status", "ref_id|Mã", "stars|Sao|stars", "comment|Nhận xét", "is_hidden|Đã ẩn|bool");
+            "target|Đánh giá cho|status", "driver_name|Tài xế / Quán", "ref_type|Loại|status", "ref_id|Mã",
+            "stars|Sao|stars", "comment|Nhận xét", "is_hidden|Đã ẩn|bool");
 
     public AdminFrame(Net net) {
         super(net, "Quản trị", Theme.PEACH, Theme.PEACH_DEEP);
@@ -62,6 +68,11 @@ public class AdminFrame extends BaseFrame {
         rideFilter.addActionListener(e -> loadRides());
         tabs.addTab("🚗 Chuyến xe", page("Chuyến xe", rides, this::loadRides, rideFilter,
                 Ui.button("Hủy chuyến", Theme.ROSE, this::cancelRide)));
+        appFilter.addActionListener(e -> loadApplications());
+        tabs.addTab("🏪 Duyệt quán", page("Hồ sơ đăng ký mở quán ăn", applications, this::loadApplications, appFilter,
+                Ui.button("Xem chi tiết", Theme.SKY, this::applicationDetail),
+                Ui.button("Duyệt", Theme.MINT, this::approveApplication),
+                Ui.button("Từ chối", Theme.ROSE, this::rejectApplication)));
         tabs.addTab("🍽 Nhà hàng & menu", buildRestaurants());
         tabs.addTab("🧾 Đơn đồ ăn", page("Đơn đồ ăn", orders, this::loadOrders,
                 Ui.button("Xem chi tiết", Theme.SKY, this::orderDetail),
@@ -78,6 +89,7 @@ public class AdminFrame extends BaseFrame {
         setBody(tabs);
 
         orders.onDoubleClick(o -> orderDetail());
+        applications.onDoubleClick(a -> applicationDetail());
         drivers.onDoubleClick(d -> editVehicle());
         restaurants.onDoubleClick(r -> editRestaurant(r));
         menu.onDoubleClick(m -> editMenuItem(m));
@@ -103,11 +115,12 @@ public class AdminFrame extends BaseFrame {
             case 1 -> loadUsers();
             case 2 -> loadDrivers();
             case 3 -> loadRides();
-            case 4 -> loadRestaurants();
-            case 5 -> loadOrders();
-            case 6 -> loadPricing();
-            case 7 -> loadPayments();
-            case 8 -> loadReviews();
+            case 4 -> loadApplications();
+            case 5 -> loadRestaurants();
+            case 6 -> loadOrders();
+            case 7 -> loadPricing();
+            case 8 -> loadPayments();
+            case 9 -> loadReviews();
             default -> { }
         }
     }
@@ -127,6 +140,7 @@ public class AdminFrame extends BaseFrame {
         grid.add(Ui.stat("Doanh thu hôm nay", sRevenueToday, Theme.MINT));
         grid.add(Ui.stat("Tổng doanh thu", sRevenue, Theme.ROSE));
         grid.add(Ui.stat("Phí nền tảng thu được", sCommission, Theme.PEACH));
+        grid.add(Ui.stat("Quán ăn (hồ sơ chờ duyệt)", sShops, Theme.SKY));
         left.add(grid, BorderLayout.NORTH);
 
         JPanel chartBox = new JPanel(new BorderLayout(0, 6));
@@ -160,6 +174,7 @@ public class AdminFrame extends BaseFrame {
             sRides.setText(num(o, "rides_today") + " / " + num(o, "rides_total"));
             sOrders.setText(num(o, "orders_today") + " / " + num(o, "orders_total"));
             sActive.setText(num(o, "rides_active") + " · " + num(o, "orders_active"));
+            sShops.setText(num(o, "restaurants") + " (" + num(o, "applications_pending") + ")");
             sRevenueToday.setText(Ui.money(o, "revenue_today"));
             sRevenue.setText(Ui.money(o, "revenue_total"));
             sCommission.setText(Ui.money(o, "commission_total"));
@@ -285,6 +300,108 @@ public class AdminFrame extends BaseFrame {
             if (Json.has(o, "cancel_reason")) s.append("<br>Lý do hủy: ").append(Ui.esc(Json.str(o, "cancel_reason")));
             Ui.info(this, s.append("</html>").toString());
         });
+    }
+
+    // ---------- Duyệt hồ sơ mở quán ----------
+
+    private void loadApplications() {
+        JsonObject req = Json.obj("entity", "applications");
+        if (appFilter.getSelectedIndex() == 0) req.addProperty("status", "PENDING");
+        net.quiet("ADMIN_LIST", req, applications::setRows);
+    }
+
+    private void approveApplication() {
+        JsonObject r = pick(applications);
+        if (r == null) return;
+        if (!"PENDING".equals(Json.str(r, "status"))) {
+            Ui.info(this, "Hồ sơ này đã được xử lý rồi");
+            return;
+        }
+        if (!Ui.confirm(this, "Duyệt quán \"" + Json.str(r, "name") + "\"?\n"
+                + "Hệ thống sẽ tạo quán cùng toàn bộ thực đơn trong hồ sơ.")) return;
+        act("ADMIN_APPLICATION_REVIEW", Json.obj("id", id(r), "status", "APPROVED"), "Đã duyệt và tạo quán");
+    }
+
+    private void rejectApplication() {
+        JsonObject r = pick(applications);
+        if (r == null) return;
+        if (!"PENDING".equals(Json.str(r, "status"))) {
+            Ui.info(this, "Hồ sơ này đã được xử lý rồi");
+            return;
+        }
+        String note = JOptionPane.showInputDialog(this,
+                "Lý do từ chối \"" + Json.str(r, "name") + "\" (chủ quán sẽ đọc được):", "GoRide", JOptionPane.QUESTION_MESSAGE);
+        if (note == null || note.isBlank()) return;
+        act("ADMIN_APPLICATION_REVIEW", Json.obj("id", id(r), "status", "REJECTED", "admin_note", note.trim()), "Đã từ chối hồ sơ");
+    }
+
+    /** Xem toàn bộ hồ sơ kèm ảnh quán và ảnh từng món. */
+    private void applicationDetail() {
+        JsonObject r = pick(applications);
+        if (r == null) return;
+        net.run(this, "ADMIN_APPLICATION_DETAIL", Json.obj("id", id(r)), res -> {
+            JsonObject o = res.getAsJsonObject();
+            JPanel body = new JPanel();
+            body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+            body.setBackground(Theme.SURFACE);
+
+            JPanel head = new JPanel(new BorderLayout(12, 0));
+            head.setOpaque(false);
+            head.setAlignmentX(Component.LEFT_ALIGNMENT);
+            head.add(thumb(o, 170, 120), BorderLayout.WEST);
+            head.add(new JLabel("<html><div style='width:360px'><b style='font-size:13px'>"
+                    + Ui.esc(Json.str(o, "name")) + "</b> · " + Ui.esc(Json.str(o, "category", "—")) + "<br>"
+                    + Ui.esc(Json.str(o, "address")) + "<br>"
+                    + "<span style='color:#5A6472'>Chủ quán: " + Ui.esc(Json.str(o, "owner_name")) + " · "
+                    + Ui.esc(Json.str(o, "owner_phone")) + " · " + Ui.esc(Json.str(o, "owner_email", "—")) + "</span><br>"
+                    + "<span style='color:#5A6472'>SĐT quán: " + Ui.esc(Json.str(o, "phone", "—"))
+                    + " · Gửi lúc " + Json.str(o, "created_at", "") + "</span><br><br>"
+                    + Ui.esc(Json.str(o, "description", "")) + "</div></html>"));
+            body.add(head);
+            body.add(Box.createVerticalStrut(10));
+            JsonArray items = o.getAsJsonArray("items");
+            body.add(Ui.label("Thực đơn (" + items.size() + " món)", 13f, Font.BOLD));
+            for (JsonElement e : items) {
+                JsonObject it = e.getAsJsonObject();
+                JPanel row = new JPanel(new BorderLayout(10, 0));
+                row.setOpaque(false);
+                row.setAlignmentX(Component.LEFT_ALIGNMENT);
+                row.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.LINE));
+                row.add(thumb(it, 90, 70), BorderLayout.WEST);
+                row.add(new JLabel("<html><div style='width:390px'><b>" + Ui.esc(Json.str(it, "name")) + "</b> — "
+                        + Ui.money(it.get("price").getAsDouble()) + "<br><span style='color:#5A6472'>"
+                        + Ui.esc(Json.str(it, "description", "")) + "</span></div></html>"));
+                body.add(row);
+            }
+            if (Json.has(o, "admin_note"))
+                body.add(Ui.muted("<html><br>Ghi chú của Admin: " + Ui.esc(Json.str(o, "admin_note")) + "</html>"));
+
+            JScrollPane sp = new JScrollPane(body);
+            sp.setBorder(null);
+            sp.getVerticalScrollBar().setUnitIncrement(18);
+            sp.setPreferredSize(new Dimension(640, 480));
+            JOptionPane.showMessageDialog(this, sp,
+                    "Hồ sơ #" + id(o) + " · " + Ui.vi(Json.str(o, "status")), JOptionPane.PLAIN_MESSAGE);
+        });
+    }
+
+    /** Ô ảnh cho quán/món; chưa có ảnh thì hiện khung xám. */
+    private JLabel thumb(JsonObject o, int w, int h) {
+        JLabel l = new JLabel("Không có ảnh", SwingConstants.CENTER);
+        l.setPreferredSize(new Dimension(w, h));
+        l.setOpaque(true);
+        l.setBackground(Theme.ROW_ALT);
+        l.setForeground(Theme.MUTED);
+        l.setFont(l.getFont().deriveFont(11f));
+        l.setBorder(BorderFactory.createLineBorder(Theme.LINE));
+        if (Json.has(o, "image_id")) {
+            l.setText("...");
+            ImageStore.load(net, o.get("image_id").getAsLong(), w - 2, h - 2, icon -> {
+                l.setText("");
+                l.setIcon(icon);
+            });
+        }
+        return l;
     }
 
     // ---------- Nhà hàng & menu ----------
@@ -451,10 +568,10 @@ public class AdminFrame extends BaseFrame {
                 int x = left + i * slot + (slot - barW) / 2;
                 int hr = (int) Math.round(ride / max * plotH), hf = (int) Math.round(food / max * plotH);
                 int y = h - bottom;
-                g.setColor(Theme.LAVENDER);
-                g.fillRoundRect(x, y - hr, barW, hr, 8, 8);
-                g.setColor(Theme.PEACH);
-                g.fillRoundRect(x, y - hr - hf, barW, hf, 8, 8);
+                g.setColor(Theme.LAVENDER_DEEP);
+                g.fillRect(x, y - hr, barW, hr);
+                g.setColor(Theme.PEACH_DEEP);
+                g.fillRect(x, y - hr - hf, barW, hf);
                 String day = Json.str(o, "day", "");
                 String label = day.length() >= 10 ? day.substring(8, 10) + "/" + day.substring(5, 7) : day;
                 g.setColor(Theme.MUTED);
@@ -471,7 +588,7 @@ public class AdminFrame extends BaseFrame {
 
         private static void legend(Graphics2D g, int x, int y, Color c, String text) {
             g.setColor(c);
-            g.fillRoundRect(x, y - 9, 12, 12, 4, 4);
+            g.fillRect(x, y - 9, 12, 12);
             g.setColor(Theme.INK);
             g.drawString(text, x + 18, y + 1);
         }

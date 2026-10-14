@@ -25,7 +25,7 @@ public class PlaceField extends JPanel {
         super(new BorderLayout(6, 0));
         this.net = net;
         this.bias = bias;
-        setOpaque(false);
+        setBackground(Theme.BG); // tự vẽ nền để ô địa chỉ luôn được xoá sạch khi vẽ lại
         JLabel mark = new JLabel("●");
         mark.setForeground(dot);
         text.putClientProperty("JTextField.placeholderText", placeholder);

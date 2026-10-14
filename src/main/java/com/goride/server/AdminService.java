@@ -8,6 +8,7 @@ import com.google.gson.JsonObject;
 
 import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public final class AdminService {
@@ -27,10 +28,13 @@ public final class AdminService {
         o.add("orders_today", scalar("SELECT COUNT(*) v FROM food_orders WHERE DATE(created_at)=CURDATE()"));
         o.add("orders_active", scalar("SELECT COUNT(*) v FROM food_orders WHERE status NOT IN ('DELIVERED','CANCELLED')"));
         o.add("orders_total", scalar("SELECT COUNT(*) v FROM food_orders WHERE status='DELIVERED'"));
+        o.add("restaurants", scalar("SELECT COUNT(*) v FROM restaurants"));
+        o.add("applications_pending", scalar("SELECT COUNT(*) v FROM restaurant_applications WHERE status='PENDING'"));
         o.add("revenue_today", scalar("SELECT COALESCE(SUM(amount),0) v FROM payments WHERE status='PAID' AND DATE(created_at)=CURDATE()"));
         long revenue = scalar("SELECT COALESCE(SUM(amount),0) v FROM payments WHERE status='PAID'").getAsLong();
         o.addProperty("revenue_total", revenue);
-        o.addProperty("commission_total", Math.round(revenue * (1 - Config.getDouble("DRIVER_SHARE", 0.8))));
+        // chiết khấu thật: 20% phần tài xế + 25% tiền món của quán (trước đây lấy 20% cả tiền món, sai)
+        o.addProperty("commission_total", StatementService.platformCommission());
 
         // doanh thu 7 ngày gần nhất theo loại
         Map<String, JsonObject> byDay = new HashMap<>();
@@ -66,7 +70,10 @@ public final class AdminService {
                     FROM users u JOIN drivers d ON d.user_id = u.id ORDER BY FIELD(d.approval,'PENDING','APPROVED','REJECTED'), u.id DESC""");
             case "rides" -> Db.query(RIDE_LIST + " ORDER BY r.id DESC LIMIT 300");
             case "rides_active" -> Db.query(RIDE_LIST + " WHERE r.status IN ('SEARCHING','ACCEPTED','ARRIVED','PICKED_UP') ORDER BY r.id DESC");
-            case "restaurants" -> Db.query("SELECT * FROM restaurants ORDER BY id");
+            case "applications" -> MerchantService.list(d);
+            case "restaurants" -> Db.query("""
+                    SELECT r.*, u.full_name AS owner_name, u.phone AS owner_phone
+                    FROM restaurants r LEFT JOIN users u ON u.id = r.owner_id ORDER BY r.id""");
             case "menu" -> Db.query("SELECT * FROM menu_items WHERE restaurant_id=? ORDER BY name", Json.reqLong(d, "restaurant_id"));
             case "food_orders" -> Db.query("""
                     SELECT o.id, u.full_name AS user_name, r.name AS restaurant_name, du.full_name AS driver_name,
@@ -78,9 +85,13 @@ public final class AdminService {
                     SELECT p.id, u.full_name AS user_name, p.ref_type, p.ref_id, p.amount, p.method, p.status, p.created_at
                     FROM payments p JOIN users u ON u.id=p.user_id ORDER BY p.id DESC LIMIT 300""");
             case "reviews" -> Db.query("""
-                    SELECT rv.id, u.full_name AS user_name, du.full_name AS driver_name, rv.ref_type, rv.ref_id,
+                    SELECT rv.id, u.full_name AS user_name, rv.target,
+                           COALESCE(du.full_name, rs.name) AS driver_name, rv.ref_type, rv.ref_id,
                            rv.stars, rv.comment, rv.is_hidden, rv.created_at
-                    FROM reviews rv JOIN users u ON u.id=rv.user_id JOIN users du ON du.id=rv.driver_id ORDER BY rv.id DESC""");
+                    FROM reviews rv JOIN users u ON u.id=rv.user_id
+                    LEFT JOIN users du ON du.id=rv.driver_id
+                    LEFT JOIN restaurants rs ON rs.id=rv.restaurant_id
+                    ORDER BY rv.id DESC""");
             case "online_drivers" -> onlineDrivers();
             default -> throw new AppException("Danh sách không hỗ trợ: " + entity);
         };
@@ -96,10 +107,13 @@ public final class AdminService {
         for (ClientHandler h : Sessions.drivers()) {
             if (!h.driverOnline) continue;
             double[] p = Sessions.LOCATIONS.get(h.userId);
-            Sessions.Job job = Sessions.ACTIVE_JOBS.get(h.userId);
+            List<Sessions.Job> jobs = Sessions.jobs(h.userId);
+            String jobText = jobs.isEmpty() ? "Rảnh" : jobs.stream()
+                    .map(j -> (j.refType().equals("RIDE") ? "Chuyến #" : "Đơn #") + j.refId())
+                    .collect(java.util.stream.Collectors.joining(", "));
             out.add(Json.obj("id", h.userId, "full_name", h.fullName, "vehicle_type", h.vehicleType,
                     "lat", p == null ? null : p[0], "lng", p == null ? null : p[1],
-                    "job", job == null ? "Rảnh" : (job.refType().equals("RIDE") ? "Chuyến #" : "Đơn #") + job.refId()));
+                    "job", jobText));
         }
         return out;
     }
@@ -224,10 +238,11 @@ public final class AdminService {
     }
 
     static JsonObject toggleReview(long id) {
-        JsonObject r = Db.one("SELECT driver_id FROM reviews WHERE id=?", id);
+        JsonObject r = Db.one("SELECT target, driver_id, restaurant_id FROM reviews WHERE id=?", id);
         if (r == null) throw new AppException("Không tìm thấy đánh giá");
         Db.update("UPDATE reviews SET is_hidden = 1 - is_hidden WHERE id=?", id);
-        AccountService.recalcRating(r.get("driver_id").getAsLong());
+        if ("RESTAURANT".equals(Json.str(r, "target"))) AccountService.recalcRestaurantRating(r.get("restaurant_id").getAsLong());
+        else AccountService.recalcRating(r.get("driver_id").getAsLong());
         return Json.obj("id", id);
     }
 }

@@ -64,8 +64,9 @@ public class UdpGpsServer implements Runnable {
             RideService.safe(() -> Db.update("UPDATE drivers SET last_lat=?, last_lng=? WHERE user_id=?", lat, lng, driverId));
         }
 
-        Sessions.Job job = Sessions.ACTIVE_JOBS.get(driverId);
-        if (job != null && job.customerId() > 0) {
+        // giao gộp nhiều đơn thì khách nào cũng thấy tài xế đang ở đâu
+        for (Sessions.Job job : Sessions.jobs(driverId)) {
+            if (job.customerId() <= 0) continue;
             Sessions.push(job.customerId(), "DRIVER_LOCATION", Json.obj(
                     "driver_id", driverId, "lat", lat, "lng", lng, "ref_type", job.refType(), "ref_id", job.refId()));
         }

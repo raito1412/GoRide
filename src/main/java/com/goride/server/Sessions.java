@@ -15,7 +15,10 @@ public final class Sessions {
     static final Map<Long, ClientHandler> ONLINE = new ConcurrentHashMap<>();
     static final Map<String, Long> UDP_TOKENS = new ConcurrentHashMap<>();
     static final Map<Long, double[]> LOCATIONS = new ConcurrentHashMap<>();
-    static final Map<Long, Job> ACTIVE_JOBS = new ConcurrentHashMap<>();
+    /** Tài xế được giữ cùng lúc tối đa 1 chuyến xe, HOẶC tối đa ngần này đơn đồ ăn (giao gộp). */
+    static final int MAX_FOOD_BATCH = 3;
+    /** Các việc tài xế đang giữ. Danh sách bất biến, luôn thay cả cụm qua compute() để an toàn đa luồng. */
+    static final Map<Long, List<Job>> ACTIVE_JOBS = new ConcurrentHashMap<>();
 
     private Sessions() {}
 
@@ -41,11 +44,32 @@ public final class Sessions {
         return ONLINE.values().stream().filter(h -> "DRIVER".equals(h.role)).toList();
     }
 
-    /** Tài xế đã duyệt, đang bật online và không bận. */
-    static List<ClientHandler> availableDrivers() {
-        return drivers().stream()
-                .filter(h -> h.driverOnline && h.approved && !ACTIVE_JOBS.containsKey(h.userId))
-                .toList();
+    static List<Job> jobs(long driverId) { return ACTIVE_JOBS.getOrDefault(driverId, List.of()); }
+
+    static boolean hasRide(long driverId) {
+        return jobs(driverId).stream().anyMatch(j -> j.refType().equals("RIDE"));
+    }
+
+    static int foodCount(long driverId) {
+        return (int) jobs(driverId).stream().filter(j -> j.refType().equals("FOOD")).count();
+    }
+
+    /** Nhận được chuyến xe: đang rảnh hoàn toàn. */
+    static boolean freeForRide(long driverId) { return jobs(driverId).isEmpty(); }
+
+    /** Nhận được thêm đơn đồ ăn: không chở khách và chưa đủ MAX_FOOD_BATCH đơn. */
+    static boolean freeForFood(long driverId) { return !hasRide(driverId) && foodCount(driverId) < MAX_FOOD_BATCH; }
+
+    private static List<ClientHandler> ready() {
+        return drivers().stream().filter(h -> h.driverOnline && h.approved).toList();
+    }
+
+    static List<ClientHandler> driversFreeForRide() {
+        return ready().stream().filter(h -> freeForRide(h.userId)).toList();
+    }
+
+    static List<ClientHandler> driversFreeForFood() {
+        return ready().stream().filter(h -> freeForFood(h.userId)).toList();
     }
 
     static void pushDrivers(String event, JsonObject data, long exceptId) {
