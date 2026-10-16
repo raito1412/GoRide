@@ -11,14 +11,27 @@ import java.awt.*;
 /** Ô chọn thẻ giảm giá, dùng chung cho đặt xe và đặt đồ ăn. Mục đầu tiên là "không dùng thẻ". */
 public class VoucherBox extends JComboBox<JsonObject> {
     public VoucherBox() {
+        setMaximumRowCount(6);
+        setPreferredSize(new Dimension(280, 40));
         setRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> list, Object value, int i, boolean sel, boolean focus) {
                 JsonObject v = (JsonObject) value;
-                String text = v == null ? "Không dùng thẻ giảm giá"
-                        : "🎟 −" + Json.integer(v, "percent", 0) + "%  ·  " + Json.str(v, "title")
-                          + "  (còn " + Math.max(1, Json.integer(v, "hours_left", 0)) + "h)";
-                return super.getListCellRendererComponent(list, text, i, sel, focus);
+                String text;
+                if (v == null) {
+                    text = "<html><span style='color:#5A6472'>Không dùng thẻ giảm giá</span></html>";
+                } else {
+                    long hours = Math.max(1, Json.lng(v, "hours_left", 0));
+                    String left = hours >= 48 ? "còn " + (hours / 24) + " ngày" : "còn " + hours + " giờ";
+                    text = "<html><b style='color:#B8480A'>Giảm " + Json.integer(v, "percent", 0) + "%</b>"
+                            + "&nbsp;&nbsp;<span style='color:#121619'>tối đa " + Ui.money(Json.dbl(v, "max_discount", 0)) + "</span>"
+                            + "&nbsp;&nbsp;<span style='color:#5A6472'>· " + left + "</span></html>";
+                }
+                JLabel l = (JLabel) super.getListCellRendererComponent(list, text, i, sel, focus);
+                l.setIcon(Icons.get("ticket", 16, v == null ? Theme.MUTED : Theme.PEACH_DEEP));
+                l.setIconTextGap(9);
+                l.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+                return l;
             }
         });
         addItem(null);

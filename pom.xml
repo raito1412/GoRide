@@ -42,6 +42,12 @@
       <artifactId>flatlaf</artifactId>
       <version>3.5.4</version>
     </dependency>
+    <!-- icon SVG nét mảnh (thay emoji trên nút / tab) -->
+    <dependency>
+      <groupId>com.formdev</groupId>
+      <artifactId>flatlaf-extras</artifactId>
+      <version>3.5.4</version>
+    </dependency>
   </dependencies>
 
   <build>

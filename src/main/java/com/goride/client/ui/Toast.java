@@ -57,13 +57,25 @@ public final class Toast {
         card.putClientProperty("timer", life);
     }
 
+    /** Đóng mọi thông báo đang hiện trên cửa sổ của owner. */
+    public static void clear(Component owner) {
+        Window w = owner instanceof Window self ? self : SwingUtilities.getWindowAncestor(owner);
+        if (!(w instanceof JFrame frame)) return;
+        JLayeredPane layers = frame.getLayeredPane();
+        List<JComponent> live = LIVE.get(layers);
+        if (live == null) return;
+        for (JComponent c : new ArrayList<>(live)) remove(layers, c);
+    }
+
     private static JComponent build(String emoji, String title, String body, Color accent,
                                     String actionText, Runnable action, JLayeredPane layers) {
         Ui.Card card = new Ui.Card(new BorderLayout(12, 0), accent);
-        card.setBorder(new EmptyBorder(14, 16, 14, 12));
+        card.setBorder(new EmptyBorder(14, 20, 14, 12));
 
-        JLabel icon = new JLabel(emoji);
-        icon.setFont(icon.getFont().deriveFont(26f));
+        String iconName = Icons.forEmoji(emoji);
+        Color tone = Theme.deep(accent) != null ? Theme.deep(accent) : Theme.INK;
+        JLabel icon = iconName != null ? new JLabel(Icons.get(iconName, 22, tone)) : new JLabel(emoji);
+        icon.setVerticalAlignment(SwingConstants.TOP);
         card.add(icon, BorderLayout.WEST);
 
         // BorderLayout.CENTER kéo giãn nhãn HTML khiến nó xuống dòng theo bề rộng thật và bị cắt;
@@ -100,7 +112,7 @@ public final class Toast {
         }
         card.add(text);
 
-        JButton close = new JButton("✕");
+        JButton close = new JButton(Icons.get("x", 14, Theme.MUTED));
         close.setBorderPainted(false);
         close.setContentAreaFilled(false);
         close.setForeground(Theme.MUTED);

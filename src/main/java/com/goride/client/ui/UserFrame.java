@@ -167,7 +167,7 @@ public class UserFrame extends BaseFrame {
         col.setOpaque(false);
         col.setBorder(BorderFactory.createEmptyBorder(18, 22, 22, 22));
 
-        JLabel hello = Ui.label("Xin chào, " + Json.str(net.me, "full_name", "") + " 👋", 24f, Font.BOLD);
+        JLabel hello = Ui.label("Xin chào, " + Json.str(net.me, "full_name", "") + "", 24f, Font.BOLD);
         col.add(hello);
         col.add(Ui.muted("Bạn muốn làm gì hôm nay?"));
         col.add(Box.createVerticalStrut(12));
@@ -211,7 +211,10 @@ public class UserFrame extends BaseFrame {
     private boolean bannerBound;
 
     private void showBanner(String text, Runnable action) {
-        homeBanner.setText("<html><b>" + Ui.esc(text) + "</b></html>");
+        String[] p = Icons.split(text);
+        homeBanner.setText("<html><b>" + Ui.esc(p[1]) + "</b></html>");
+        homeBanner.setIcon(Icons.get(p[0], 18, Theme.BUTTER_DEEP));
+        homeBanner.setIconTextGap(10);
         homeBannerCard.setVisible(true);
         if (!bannerBound) {
             bannerBound = true;

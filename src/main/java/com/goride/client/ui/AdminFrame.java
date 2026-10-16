@@ -41,7 +41,7 @@ public class AdminFrame extends BaseFrame {
     private final DataTable restaurants = new DataTable("id|#", "name|Tên", "category|Loại", "address|Địa chỉ",
             "phone|SĐT", "owner_name|Chủ quán", "lat|Lat", "lng|Lng", "is_open|Mở cửa|bool");
     private final DataTable menu = new DataTable("id|#", "name|Món", "description|Mô tả", "price|Giá|money", "is_available|Còn bán|bool");
-    private final JLabel menuTitle = Ui.label("Thực đơn (chọn nhà hàng)", 13f, Font.BOLD);
+    private final JLabel menuTitle = Ui.label("Thực đơn", 13f, Font.BOLD);
     private final DataTable orders = new DataTable("id|#", "created_at|Thời gian|time", "user_name|Khách",
             "restaurant_name|Nhà hàng", "driver_name|Tài xế", "delivery_address|Giao tới", "items_total|Tiền món|money",
             "delivery_fee|Phí giao|money", "total|Tổng|money", "payment_method|Thanh toán|status", "status|Trạng thái|status");
@@ -77,7 +77,7 @@ public class AdminFrame extends BaseFrame {
         tabs.addTab("🧾 Đơn đồ ăn", page("Đơn đồ ăn", orders, this::loadOrders,
                 Ui.button("Xem chi tiết", Theme.SKY, this::orderDetail),
                 Ui.button("Hủy đơn", Theme.ROSE, this::cancelOrder)));
-        tabs.addTab("🏷 Bảng giá", page("Giá cước Bike / Car và phí giao đồ ăn", pricing, this::loadPricing,
+        tabs.addTab("🏷 Bảng giá", page("Bảng giá", pricing, this::loadPricing,
                 Ui.button("Sửa giá", Theme.PEACH, this::editPricing)));
         tabs.addTab("💳 Thanh toán", page("Thanh toán", payments, this::loadPayments,
                 Ui.button("Đã thanh toán", Theme.MINT, () -> paymentStatus("PAID")),
@@ -153,7 +153,7 @@ public class AdminFrame extends BaseFrame {
         JPanel right = new JPanel(new BorderLayout(0, 6));
         right.setBorder(BorderFactory.createEmptyBorder(12, 0, 12, 12));
         JPanel onlineBox = new JPanel(new BorderLayout(0, 4));
-        onlineBox.add(Ui.label("Tài xế đang online (tự làm mới 5 giây)", 13f, Font.BOLD), BorderLayout.NORTH);
+        onlineBox.add(Ui.label("Tài xế đang online", 13f, Font.BOLD), BorderLayout.NORTH);
         JScrollPane os = online.scroll();
         os.setPreferredSize(new Dimension(300, 170));
         onlineBox.add(os);
@@ -407,7 +407,7 @@ public class AdminFrame extends BaseFrame {
     // ---------- Nhà hàng & menu ----------
 
     private JComponent buildRestaurants() {
-        JPanel top = page("Nhà hàng (hệ thống giả lập nhà hàng tự xác nhận đơn)", restaurants, this::loadRestaurants,
+        JPanel top = page("Nhà hàng", restaurants, this::loadRestaurants,
                 Ui.button("Thêm", Theme.MINT, () -> editRestaurant(null)),
                 Ui.button("Sửa", Theme.SKY, () -> {
                     JsonObject r = pick(restaurants);
@@ -415,7 +415,7 @@ public class AdminFrame extends BaseFrame {
                 }),
                 Ui.button("Xóa", Theme.ROSE, this::deleteRestaurant));
         restaurants.onSelect(r -> {
-            menuTitle.setText(r == null ? "Thực đơn (chọn nhà hàng)" : "Thực đơn · " + Json.str(r, "name"));
+            menuTitle.setText(r == null ? "Thực đơn" : "Thực đơn · " + Json.str(r, "name"));
             loadMenu();
         });
 

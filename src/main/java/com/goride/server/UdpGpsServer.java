@@ -1,5 +1,6 @@
 package com.goride.server;
 
+import com.goride.common.Geo;
 import com.goride.common.Json;
 import com.goride.common.Log;
 
@@ -15,6 +16,9 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class UdpGpsServer implements Runnable {
     private static final long PERSIST_EVERY_MS = 15_000;
+    /** Tốc độ tối đa coi là thật (~200 km/h) và độ lệch tối thiểu luôn cho phép giữa hai gói. */
+    private static final double MAX_KM_PER_S = 0.055, MIN_JUMP_KM = 0.5;
+    private final Map<Long, Long> lastAt = new ConcurrentHashMap<>();
     private final int port;
     private final Map<String, Long> lastSeq = new ConcurrentHashMap<>();
     private final Map<Long, Long> lastPersist = new ConcurrentHashMap<>();
@@ -56,6 +60,14 @@ public class UdpGpsServer implements Runnable {
             lastSeq.put(p[1], prev);
             return; // gói đến trễ
         }
+        // đang có việc mà vị trí "nhảy" nhanh hơn tốc độ xe chạy được thì coi là vị trí ảo, bỏ qua
+        long at = System.currentTimeMillis();
+        double[] last = Sessions.LOCATIONS.get(driverId);
+        if (last != null && DriverJobs.busy(driverId)) {
+            double allowed = Math.max(MIN_JUMP_KM, (at - lastAt.getOrDefault(driverId, at)) / 1000.0 * MAX_KM_PER_S);
+            if (Geo.km(last[0], last[1], lat, lng) > allowed) return;
+        }
+        lastAt.put(driverId, at);
         Sessions.LOCATIONS.put(driverId, new double[]{lat, lng});
 
         long now = System.currentTimeMillis();

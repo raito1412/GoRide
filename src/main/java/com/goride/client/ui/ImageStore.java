@@ -50,13 +50,31 @@ public final class ImageStore {
                 byte[] bytes = Base64.getDecoder().decode(Json.str(o, "data"));
                 BufferedImage img = ImageIO.read(new java.io.ByteArrayInputStream(bytes));
                 if (img == null) return;
-                ImageIcon icon = new ImageIcon(fit(img, w, h));
+                ImageIcon icon = new ImageIcon(cover(img, w, h));
                 CACHE.put(key, icon);
                 onReady.accept(icon);
             } catch (RuntimeException | IOException ignored) {
                 // ảnh hỏng thì cứ để trống, không làm phiền người dùng
             }
         });
+    }
+
+    /**
+     * Lấp kín khung w×h: phóng/thu theo cạnh ngắn rồi cắt phần thừa ở giữa, giữ nguyên tỉ lệ ảnh,
+     * nên ô ảnh nào cũng đầy, không còn viền trắng hai bên.
+     */
+    public static Image cover(BufferedImage src, int w, int h) {
+        double scale = Math.max(w / (double) src.getWidth(), h / (double) src.getHeight());
+        int sw = (int) Math.ceil(src.getWidth() * scale), sh = (int) Math.ceil(src.getHeight() * scale);
+        BufferedImage out = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = out.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, w, h);
+        g.drawImage(src.getScaledInstance(sw, sh, Image.SCALE_SMOOTH), (w - sw) / 2, (h - sh) / 2, null);
+        g.dispose();
+        return out;
     }
 
     /** Thu nhỏ vừa khung w×h, giữ nguyên tỉ lệ (không phóng to ảnh nhỏ). */

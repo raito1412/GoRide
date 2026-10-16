@@ -213,6 +213,13 @@ public final class RideService {
         String prev = PREVIOUS.get(next);
         if (prev == null) throw new AppException("Trạng thái không hợp lệ");
         String sql = "UPDATE rides SET status=? WHERE id=? AND driver_id=? AND status=?";
+        if (next.equals("ARRIVED") || next.equals("COMPLETED")) {
+            JsonObject r = Db.one("SELECT pickup_lat, pickup_lng, drop_lat, drop_lng FROM rides WHERE id=? AND driver_id=?", id, c.userId);
+            if (r == null) throw new AppException("Không tìm thấy chuyến #" + id);
+            boolean pickup = next.equals("ARRIVED");
+            Sessions.requireNear(c.userId, Json.dbl(r, pickup ? "pickup_lat" : "drop_lat", 0),
+                    Json.dbl(r, pickup ? "pickup_lng" : "drop_lng", 0), pickup ? "điểm đón" : "điểm đến");
+        }
         if (next.equals("COMPLETED")) {
             Db.tx(conn -> {
                 if (Db.update(conn, sql, next, id, c.userId, prev) == 0) throw new AppException("Chuyến không ở trạng thái phù hợp");

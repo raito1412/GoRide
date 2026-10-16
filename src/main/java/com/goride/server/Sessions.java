@@ -82,6 +82,17 @@ public final class Sessions {
         return p == null ? null : Geo.km(p[0], p[1], lat, lng);
     }
 
+    /**
+     * Các bước "đã tới / hoàn thành / đã giao" chỉ hợp lệ khi xe thật sự ở gần điểm đó. Vị trí lấy từ GPS
+     * server đang giữ (UDP 2 giây/lần), nên cho sai số ARRIVE_RADIUS_KM (mặc định 300 m).
+     */
+    static void requireNear(long driverId, double lat, double lng, String place) {
+        Double km = distanceKm(driverId, lat, lng);
+        if (km == null) throw new AppException("Chưa nhận được vị trí GPS của bạn, hãy bật Online rồi thử lại");
+        double max = com.goride.common.Config.getDouble("ARRIVE_RADIUS_KM", 0.3);
+        if (km > max) throw new AppException(String.format("Bạn chưa tới %s (còn cách %.1f km)", place, km));
+    }
+
     static void addDriverLocation(JsonObject view) {
         if (!view.has("driver_id") || view.get("driver_id").isJsonNull()) return;
         double[] p = LOCATIONS.get(view.get("driver_id").getAsLong());

@@ -58,7 +58,9 @@ public final class Ui {
      * setBackground cũng được quy đổi y như vậy.
      */
     public static JButton button(String text, Color bg, Runnable action) {
-        JButton b = new SolidButton(text);
+        String[] parts = Icons.split(text);
+        SolidButton b = new SolidButton(parts[1]);
+        if (parts[0] != null) b.setIconName(parts[0]);
         b.setBackground(bg);
         b.setFocusPainted(false);
         b.setFont(b.getFont().deriveFont(Font.BOLD));
@@ -68,17 +70,40 @@ public final class Ui {
     }
 
     private static final class SolidButton extends JButton {
-        SolidButton(String text) { super(text); }
+        private String iconName;
+
+        SolidButton(String text) {
+            super(text);
+            setIconTextGap(7);
+        }
+
+        /** "arrow-right>" = icon đặt bên phải chữ. */
+        void setIconName(String name) {
+            boolean right = name.endsWith(">");
+            iconName = right ? name.substring(0, name.length() - 1) : name;
+            if (right) setHorizontalTextPosition(SwingConstants.LEFT);
+            applyIcon();
+        }
+
+        private void applyIcon() {
+            if (iconName != null && getForeground() != null) setIcon(Icons.get(iconName, 16, getForeground()));
+        }
+
+        @Override
+        public void setForeground(Color fg) {
+            super.setForeground(fg);
+            applyIcon();
+        }
 
         @Override
         public void setBackground(Color bg) {
-            Color solid = bg == null ? null : Theme.deep(bg);
+            Color solid = bg == null ? null : buttonTone(bg);
             if (solid != null) {
                 super.setBackground(solid);
                 setForeground(Color.WHITE);
                 setBorder(new EmptyBorder(9, 16, 9, 16));
             } else {
-                super.setBackground(bg);
+                super.setBackground(Theme.SURFACE);
                 setForeground(Theme.INK);
                 setBorder(BorderFactory.createCompoundBorder(
                         BorderFactory.createLineBorder(Theme.MUTED), new EmptyBorder(8, 15, 8, 15)));
@@ -86,10 +111,26 @@ public final class Ui {
         }
     }
 
+    /**
+     * Quy tắc màu nút cho cả app (để màn nào cũng hài hoà): chỉ 3 kiểu nút đặc —
+     * xanh dương = hành động chính, xanh lá = xác nhận / nhận việc, đỏ = huỷ / xoá. Mọi màu khác là nút viền.
+     */
+    static Color buttonTone(Color bg) {
+        if (Theme.LAVENDER.equals(bg) || Theme.PEACH.equals(bg)) return Theme.LAVENDER_DEEP;
+        if (Theme.MINT.equals(bg)) return Theme.MINT_DEEP;
+        if (Theme.ROSE.equals(bg)) return Theme.ROSE_DEEP;
+        return null;
+    }
+
     public static JLabel label(String text, float size, int style) {
-        JLabel l = new JLabel(text);
+        String[] parts = Icons.split(text);
+        JLabel l = new JLabel(parts[1]);
         l.setFont(l.getFont().deriveFont(style, size));
         l.setForeground(Theme.INK);
+        if (parts[0] != null && !parts[0].endsWith(">")) {
+            l.setIcon(Icons.get(parts[0], Math.round(size + 2), Theme.MUTED));
+            l.setIconTextGap(7);
+        }
         return l;
     }
 
@@ -391,11 +432,18 @@ public final class Ui {
 
     /** Nút lớn ở màn hình chính: emoji + tên + mô tả ngắn. */
     public static Card tile(String emoji, String title, String subtitle, Color bg, Runnable action) {
-        Card c = new Card(new BorderLayout(16, 0), bg);
-        c.setBorder(new EmptyBorder(22, 26, 22, 22));
-        JLabel icon = new JLabel(emoji);
-        icon.setFont(icon.getFont().deriveFont(36f));
-        c.add(icon, BorderLayout.WEST);
+        Card c = new Card(new BorderLayout(18, 0), bg);
+        c.setBorder(new EmptyBorder(20, 24, 20, 22));
+        // ô vuông nền nhạt + icon nét đậm cùng tông màu: gọn và "thật" hơn emoji
+        Color tone = Theme.deep(bg) != null ? Theme.deep(bg) : Theme.INK;
+        JLabel icon = new JLabel(Icons.get(Icons.forEmoji(emoji), 26, tone), SwingConstants.CENTER);
+        icon.setOpaque(true);
+        icon.setBackground(bg);
+        icon.setPreferredSize(new Dimension(52, 52));
+        JPanel iconWrap = new JPanel(new GridBagLayout());
+        iconWrap.setOpaque(false);
+        iconWrap.add(icon);
+        c.add(iconWrap, BorderLayout.WEST);
         JPanel text = new JPanel(new GridLayout(2, 1, 0, 2));
         text.setOpaque(false);
         text.add(label(title, 16f, Font.BOLD));
@@ -434,25 +482,9 @@ public final class Ui {
         return g;
     }
 
-    /** Emoji đại diện khi món/quán chưa có ảnh, chọn theo loại món. */
-    public static String emojiFor(String category) {
-        String c = category == null ? "" : category.toLowerCase();
-        if (c.contains("phở") || c.contains("bún") || c.contains("hủ tiếu") || c.contains("mì")) return "🍜";
-        if (c.contains("cơm")) return "🍚";
-        if (c.contains("bánh mì")) return "🥖";
-        if (c.contains("lẩu") || c.contains("nướng")) return "🍲";
-        if (c.contains("chay")) return "🥗";
-        if (c.contains("trà")) return "🧋";
-        if (c.contains("cà phê")) return "☕";
-        if (c.contains("tráng miệng") || c.contains("chè")) return "🍧";
-        if (c.contains("ăn vặt")) return "🍢";
-        return "🍽";
-    }
-
     /** Ô ảnh vuông: hiện ảnh nếu có image_id, không thì nền pastel + emoji. */
     public static JLabel photo(com.goride.client.Net net, JsonObject src, String category, int w, int h) {
-        JLabel l = new JLabel(emojiFor(category), SwingConstants.CENTER);
-        l.setFont(l.getFont().deriveFont(Math.min(w, h) * 0.45f));
+        JLabel l = new JLabel(Icons.get("food", Math.max(16, Math.min(w, h) / 3), Theme.LINE), SwingConstants.CENTER);
         l.setPreferredSize(new Dimension(w, h));
         l.setMinimumSize(new Dimension(w, h));
         l.setOpaque(true);

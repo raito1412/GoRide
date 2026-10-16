@@ -26,15 +26,19 @@ public class ProfilePanel extends JPanel {
 
         col.add(Ui.section("Thông tin cá nhân"));
         col.add(card(info));
-        col.add(Ui.row(Ui.button("Sửa hồ sơ", Theme.LAVENDER, this::editProfile)));
+        col.add(Ui.row(Ui.button("Sửa hồ sơ", Theme.SURFACE, this::editProfile)));
 
         if (driver) {
             col.add(Ui.section("Thông tin xe"));
             col.add(card(vehicle));
-            col.add(Ui.row(Ui.button("Sửa thông tin xe", Theme.MINT, this::editVehicle)));
-            col.add(Ui.muted("Đổi loại xe hoặc biển số sẽ cần Admin duyệt lại."));
+            col.add(Ui.row(Ui.button("Sửa thông tin xe", Theme.SURFACE, this::editVehicle)));
         }
-        add(BaseFrame.vscroll(col));
+        // giới hạn bề ngang cho dễ đọc, không kéo giãn hết màn hình rộng
+        col.add(Box.createHorizontalStrut(600));
+        JPanel narrow = new JPanel(new BorderLayout());
+        narrow.setOpaque(false);
+        narrow.add(col, BorderLayout.WEST);
+        add(BaseFrame.vscroll(narrow));
         render(net.me);
     }
 

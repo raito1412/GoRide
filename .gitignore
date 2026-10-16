@@ -12,3 +12,4 @@ out/
 # Runtime
 logs/
 *.log
+docs/OOAD.xlsx

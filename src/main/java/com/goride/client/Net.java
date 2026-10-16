@@ -117,6 +117,31 @@ public class Net {
         });
     }
 
+    /**
+     * Như run() nhưng khoá nút bấm trong lúc chờ server trả lời, để không gửi trùng lệnh khi bấm liên tục.
+     * Xong (thành công hay lỗi) thì mở lại nút trước khi gọi onOk.
+     */
+    public void run(Component owner, AbstractButton button, String type, JsonObject data, Consumer<JsonElement> onOk) {
+        if (button != null) {
+            if (!button.isEnabled()) return;
+            button.setEnabled(false);
+        }
+        POOL.submit(() -> {
+            try {
+                JsonElement result = call(type, data);
+                SwingUtilities.invokeLater(() -> {
+                    if (button != null) button.setEnabled(true);
+                    if (onOk != null) onOk.accept(result);
+                });
+            } catch (RuntimeException e) {
+                SwingUtilities.invokeLater(() -> {
+                    if (button != null) button.setEnabled(true);
+                    JOptionPane.showMessageDialog(owner, e.getMessage(), "GoRide", JOptionPane.WARNING_MESSAGE);
+                });
+            }
+        });
+    }
+
     /** Như run() nhưng bỏ qua lỗi (dùng cho làm mới định kỳ). */
     public void quiet(String type, JsonObject data, Consumer<JsonElement> onOk) {
         POOL.submit(() -> {

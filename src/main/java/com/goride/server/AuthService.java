@@ -201,6 +201,8 @@ public final class AuthService {
     static JsonObject setLocation(ClientHandler c, JsonObject d) {
         double lat = Json.reqDbl(d, "lat"), lng = Json.reqDbl(d, "lng");
         if (Math.abs(lat) > 90 || Math.abs(lng) > 180) throw new AppException("Toạ độ không hợp lệ");
+        // đang chở khách / giao đơn thì vị trí chỉ đi theo GPS, không cho đặt tay (tránh "dịch chuyển tức thời")
+        if (DriverJobs.busy(c.userId)) throw new AppException("Đang làm việc, không đổi vị trí bằng tay được");
         Sessions.LOCATIONS.put(c.userId, new double[]{lat, lng});
         Db.update("UPDATE drivers SET last_lat=?, last_lng=? WHERE user_id=?", lat, lng, c.userId);
         return Json.obj("lat", lat, "lng", lng);

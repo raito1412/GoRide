@@ -277,6 +277,14 @@ public final class FoodService {
         String prev = PREVIOUS.get(next);
         if (prev == null) throw new AppException("Trạng thái không hợp lệ");
         String sql = "UPDATE food_orders SET status=? WHERE id=? AND driver_id=? AND status=?";
+        if (next.equals("AT_RESTAURANT") || next.equals("DELIVERED")) {
+            JsonObject p = Db.one("SELECT r.lat AS rlat, r.lng AS rlng, o.delivery_lat, o.delivery_lng FROM food_orders o "
+                    + "JOIN restaurants r ON r.id = o.restaurant_id WHERE o.id=? AND o.driver_id=?", id, c.userId);
+            if (p == null) throw new AppException("Không tìm thấy đơn #" + id);
+            boolean shop = next.equals("AT_RESTAURANT");
+            Sessions.requireNear(c.userId, Json.dbl(p, shop ? "rlat" : "delivery_lat", 0),
+                    Json.dbl(p, shop ? "rlng" : "delivery_lng", 0), shop ? "quán" : "nhà khách");
+        }
         if (next.equals("DELIVERED")) {
             Db.tx(conn -> {
                 if (Db.update(conn, sql, next, id, c.userId, prev) == 0) throw new AppException("Đơn không ở trạng thái phù hợp");

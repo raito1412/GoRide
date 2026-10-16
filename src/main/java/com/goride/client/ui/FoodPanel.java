@@ -45,7 +45,7 @@ public class FoodPanel extends JPanel {
     private final JLabel shopName = Ui.label("", 19f, Font.BOLD);
     private final JLabel shopMeta = Ui.muted("");
     private final JPanel dishGrid = Ui.grid(3);
-    private final JButton cartBar = Ui.button("", Theme.PEACH, () -> go(CART));
+    private final JButton cartBar = Ui.button("🛒 ", Theme.PEACH, () -> go(CART));
     private JsonObject shop;
 
     // bước 3
@@ -53,7 +53,6 @@ public class FoodPanel extends JPanel {
     private final JPanel cartList = new JPanel();
     private final JLabel cartTotals = new JLabel();
     private final VoucherBox voucherBox = new VoucherBox();
-    private final JLabel voucherHint = Ui.muted(" ");
     private final JButton toCheckout;
 
     // bước 4
@@ -78,14 +77,15 @@ public class FoodPanel extends JPanel {
         this.net = net;
         this.map = map;
         this.onStepChanged = onStepChanged;
+        orderBtn = Ui.button("Đặt món", Theme.PEACH, this::placeOrder);
         address = new PlaceField(net, "Địa chỉ giao hàng", Theme.ROSE_DEEP, () -> null);
         address.onChange(() -> {
             quote = null;
-            summary.setText("Bấm \"Tính phí giao\" để xem tổng tiền");
+            orderBtn.setEnabled(false);
             drawMap(false);
+            requestQuote();
         });
         toCheckout = Ui.button("Tiếp tục →", Theme.MINT, () -> go(CHECKOUT));
-        orderBtn = Ui.button("Đặt món", Theme.PEACH, this::placeOrder);
         cancelBtn = Ui.button("Hủy đơn", Theme.ROSE, this::cancel);
         reviewBtn = Ui.button("Đánh giá tài xế", Theme.BUTTER, this::review);
         reviewShopBtn = Ui.button("Đánh giá quán", Theme.PEACH, this::reviewShop);
@@ -289,7 +289,7 @@ public class FoodPanel extends JPanel {
         JLabel price = Ui.label(Ui.money(Json.dbl(m, "price", 0)), 14f, Font.BOLD);
         price.setForeground(Theme.PEACH_DEEP);
         bottom.add(price, BorderLayout.WEST);
-        bottom.add(Ui.button("+ Thêm", Theme.PEACH, () -> addToCart(m)), BorderLayout.EAST);
+        bottom.add(Ui.button("Thêm", Theme.SURFACE, () -> addToCart(m)), BorderLayout.EAST);
         right.add(bottom, BorderLayout.SOUTH);
         c.add(right);
         return c;
@@ -325,7 +325,7 @@ public class FoodPanel extends JPanel {
 
         JPanel head = Ui.stepHeader("BƯỚC 3", "Giỏ hàng của bạn",
                 Ui.button("← Chọn thêm món", Theme.SURFACE, () -> go(MENU)),
-                Ui.button("Xóa giỏ", Theme.ROSE, () -> {
+                Ui.button("Xóa giỏ", Theme.SURFACE, () -> {
                     if (!cart.isEmpty() && Ui.confirm(this, "Xóa toàn bộ giỏ hàng?")) {
                         cart.clear();
                         renderCart();
@@ -340,9 +340,7 @@ public class FoodPanel extends JPanel {
             quote = null;
             renderCart();
         });
-        bottom.add(Ui.row(Ui.label("🎟 Thẻ giảm giá:", 13f, Font.BOLD), voucherBox,
-                Ui.button("↻", Theme.SURFACE, this::loadVouchers)));
-        bottom.add(voucherHint);
+        bottom.add(Ui.row(Ui.label("Thẻ giảm giá", 13f, Font.BOLD), voucherBox));
         bottom.add(Box.createVerticalStrut(6));
         Ui.Card totals = new Ui.Card(new BorderLayout(), Theme.ROW_ALT);
         totals.add(cartTotals);
@@ -365,19 +363,15 @@ public class FoodPanel extends JPanel {
             cartList.add(Box.createVerticalStrut(8));
             items += (int) (Json.dbl(line, "unit_price", 0) * line.get("quantity").getAsInt());
         }
-        if (cart.isEmpty()) cartList.add(Ui.muted("Giỏ hàng đang trống — quay lại bước chọn món nhé."));
+        if (cart.isEmpty()) cartList.add(Ui.muted("Giỏ hàng trống"));
 
-        JsonObject v = voucherBox.selected();
         int discount = voucherBox.preview(items);
-        voucherHint.setText(v == null ? "Chưa dùng thẻ nào — bạn có thể chọn ở ô bên trên."
-                : "Giảm " + Json.integer(v, "percent", 0) + "% (tối đa " + Ui.money(Json.dbl(v, "max_discount", 0))
-                + ") · mã " + Json.str(v, "code"));
         cartTotals.setText("<html><div style='width:360px'>Tiền món: <b>" + Ui.money(items) + "</b>"
                 + (discount > 0 ? "<br>Giảm giá tạm tính: <b style='color:#13703F'>-" + Ui.money(discount) + "</b>" : "")
-                + "<br><span style='color:#5A6472'>Phí giao sẽ tính ở bước sau theo địa chỉ của bạn.</span></div></html>");
+                + "</div></html>");
 
         int count = cart.values().stream().mapToInt(l -> l.get("quantity").getAsInt()).sum();
-        cartBar.setText(count == 0 ? "🛒 Giỏ hàng trống" : "🛒 Xem giỏ hàng (" + count + " món) · " + Ui.money(items));
+        cartBar.setText(count == 0 ? "Giỏ hàng trống" : "Xem giỏ hàng (" + count + " món) · " + Ui.money(items));
         cartBar.setEnabled(count > 0);
         toCheckout.setEnabled(count > 0);
         cartList.revalidate();
@@ -400,7 +394,7 @@ public class FoodPanel extends JPanel {
         right.add(sub);
         right.add(Ui.button("−", Theme.SURFACE, () -> changeQty(line, -1)));
         right.add(Ui.button("+", Theme.SURFACE, () -> changeQty(line, 1)));
-        right.add(Ui.button("✕", Theme.ROSE, () -> {
+        right.add(Ui.button("✕", Theme.SURFACE, () -> {
             cart.remove(Json.lng(line, "menu_item_id", -1));
             renderCart();
         }));
@@ -428,13 +422,14 @@ public class FoodPanel extends JPanel {
         JPanel form = Ui.column();
         form.setOpaque(false);
         form.add(Ui.section("Giao tới"));
-        form.add(Ui.row(Ui.button("📍 Vị trí hiện tại", Theme.MINT, this::useMyLocation), Ui.muted("hoặc bấm lên bản đồ")));
+        form.add(Ui.row(Ui.button("📍 Vị trí hiện tại", Theme.SURFACE, this::useMyLocation), Ui.muted("hoặc bấm lên bản đồ")));
         form.add(address);
         note.putClientProperty("JTextField.placeholderText", "Ghi chú cho quán (ít cay, không hành...)");
         form.add(Box.createVerticalStrut(8));
         form.add(Ui.grow(note));
         form.add(Ui.section("Thanh toán"));
-        form.add(Ui.row(payment, Ui.button("Tính phí giao", Theme.SKY, this::requestQuote)));
+        payment.addActionListener(e -> requestQuote());
+        form.add(Ui.row(payment));
         form.add(Box.createVerticalStrut(8));
         Ui.Card box = new Ui.Card(new BorderLayout(), Theme.ROW_ALT);
         box.add(summary);
@@ -479,13 +474,17 @@ public class FoodPanel extends JPanel {
     }
 
     private void requestQuote() {
+        orderBtn.setEnabled(false);
         if (cart.isEmpty() || !address.has()) {
-            summary.setText("<html>Chọn địa chỉ giao (tìm địa chỉ hoặc bấm lên bản đồ) rồi tính phí.</html>");
+            summary.setText("Chọn địa chỉ giao để tính phí");
             return;
         }
         summary.setText("Đang tính...");
+        double[] at = {address.lat(), address.lng()};
         net.run(this, "FOOD_QUOTE", orderRequest(), r -> {
+            if (at[0] != address.lat() || at[1] != address.lng()) return; // địa chỉ đã đổi trong lúc chờ
             quote = r.getAsJsonObject();
+            orderBtn.setEnabled(true);
             int discount = Json.integer(quote, "discount", 0);
             summary.setText("<html><div style='width:380px'>"
                     + "Tiền món: <b>" + Ui.money(quote, "items_total") + "</b><br>"
@@ -507,16 +506,12 @@ public class FoodPanel extends JPanel {
             Ui.info(this, "Hãy chọn địa chỉ giao hàng");
             return;
         }
-        if (quote == null) {
-            requestQuote();
-            Ui.info(this, "Đang tính phí giao, bấm \"Đặt món\" lại sau một nhịp");
-            return;
-        }
+        if (quote == null) return;
         JsonObject req = orderRequest();
         req.addProperty("delivery_address", address.address());
         req.addProperty("note", note.getText().trim());
         req.addProperty("payment_method", (String) payment.getSelectedItem());
-        net.run(this, "FOOD_ORDER", req, r -> {
+        net.run(this, orderBtn, "FOOD_ORDER", req, r -> {
             JsonObject o = r.getAsJsonObject();
             cart.clear();
             renderCart();
@@ -546,7 +541,6 @@ public class FoodPanel extends JPanel {
         col.add(card);
         col.add(Box.createVerticalStrut(10));
         col.add(Ui.row(cancelBtn, reviewBtn, reviewShopBtn, newBtn));
-        col.add(Ui.row(Ui.button("Căn bản đồ theo đơn", Theme.SURFACE, map::fit)));
         left.add(BaseFrame.vscroll(col));
 
         JPanel p = new JPanel(new BorderLayout(12, 0));
@@ -563,9 +557,10 @@ public class FoodPanel extends JPanel {
         showOrder(d, orderPoints);
         String now = status();
         if (!now.equals(before) && step.equals(TRACK)) {
-            if (now.equals("ACCEPTED")) Ui.info(this, "Tài xế " + Json.str(d, "driver_name", "") + " đã nhận đơn của bạn!");
-            else if (now.equals("DELIVERED")) Ui.info(this, "Đơn đã giao xong. Chúc bạn ngon miệng!");
-            else if (now.equals("CANCELLED")) Ui.info(this, "Đơn bị hủy: " + Json.str(d, "cancel_reason", ""));
+            String t = "Đơn #" + id(d);
+            if (now.equals("ACCEPTED")) Toast.info(this, "🛵", t, "Tài xế " + Json.str(d, "driver_name", "") + " đã nhận đơn", Theme.LAVENDER);
+            else if (now.equals("DELIVERED")) Toast.info(this, "✅", t, "Đã giao xong. Chúc bạn ngon miệng!", Theme.MINT);
+            else if (now.equals("CANCELLED")) Toast.info(this, "⚠️", t, "Đã hủy: " + Json.str(d, "cancel_reason", ""), Theme.ROSE);
         }
     }
 
@@ -618,7 +613,7 @@ public class FoodPanel extends JPanel {
 
     private void cancel() {
         if (order == null || !Ui.confirm(this, "Hủy đơn này?")) return;
-        net.run(this, "FOOD_CANCEL", Json.obj("id", id(order)), r -> showOrder(r.getAsJsonObject(), orderPoints));
+        net.run(this, cancelBtn, "FOOD_CANCEL", Json.obj("id", id(order)), r -> showOrder(r.getAsJsonObject(), orderPoints));
     }
 
     private void review() {

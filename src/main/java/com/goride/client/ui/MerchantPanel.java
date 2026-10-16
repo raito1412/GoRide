@@ -44,6 +44,8 @@ public class MerchantPanel extends JPanel {
     private final DataTable reviewTable = new DataTable("created_at|Lúc|time", "restaurant_name|Quán",
             "user_name|Khách", "ref_id|Đơn #", "stars|Sao|stars", "comment|Nhận xét");
     private final JLabel pendingHint = Ui.muted(" ");
+    private final JButton acceptBtn = Ui.button("Nhận đơn", Theme.MINT, this::acceptSelected);
+    private final JButton rejectBtn = Ui.button("Từ chối", Theme.ROSE, this::rejectSelected);
     private final JTabbedPane shopTabs = BaseFrame.newTabsPublic();
     private StatementView statement;
 
@@ -114,7 +116,7 @@ public class MerchantPanel extends JPanel {
         formBox.add(Ui.grow(phone));
 
         formBox.add(Ui.section("Địa chỉ quán"));
-        formBox.add(Ui.row(Ui.button("📍 Vị trí hiện tại", Theme.MINT, this::useMyLocation), Ui.muted("hoặc bấm lên bản đồ")));
+        formBox.add(Ui.row(Ui.button("📍 Vị trí hiện tại", Theme.SURFACE, this::useMyLocation), Ui.muted("hoặc bấm lên bản đồ")));
         formBox.add(address);
 
         formBox.add(Ui.section("Ảnh quán"));
@@ -143,8 +145,6 @@ public class MerchantPanel extends JPanel {
         submitBtn = Ui.button("Gửi hồ sơ cho Admin duyệt", Theme.MINT, this::submit);
         formBox.add(Box.createVerticalStrut(8));
         formBox.add(Ui.grow(submitBtn));
-        formBox.add(Ui.muted("<html><span style='font-size:11px'>Admin sẽ xem xét hồ sơ. "
-                + "Khi được duyệt, quán và thực đơn của bạn xuất hiện trong tab Đồ ăn.</span></html>"));
 
         JPanel col = Ui.column();
         col.setOpaque(false);
@@ -201,7 +201,7 @@ public class MerchantPanel extends JPanel {
         JPanel acts = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         acts.setOpaque(false);
         acts.add(Ui.button("↻ Làm mới", Theme.SURFACE, this::loadShop));
-        acts.add(Ui.button("+ Đăng ký thêm quán", Theme.MINT, this::startNew));
+        acts.add(Ui.button("+ Đăng ký thêm quán", Theme.SURFACE, this::startNew));
         head.add(acts, BorderLayout.EAST);
 
         shopTable.widths(40, 200, 100, 260, 70, 90, 80, 50, 70);
@@ -218,15 +218,12 @@ public class MerchantPanel extends JPanel {
         oh.add(pendingHint, BorderLayout.WEST);
         JPanel oa = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         oa.setOpaque(false);
-        oa.add(Ui.button("✅ Nhận đơn", Theme.MINT, this::acceptSelected));
-        oa.add(Ui.button("✖ Từ chối", Theme.ROSE, this::rejectSelected));
+        oa.add(acceptBtn);
+        oa.add(rejectBtn);
         oa.add(Ui.button("Xem chi tiết", Theme.SKY, () -> showOrder(orderTable.selected())));
         oh.add(oa, BorderLayout.EAST);
         orders.add(oh, BorderLayout.NORTH);
         orders.add(orderTable.scroll());
-        orders.add(Ui.muted("<html>Đơn ở trạng thái <b>Chờ nhà hàng</b> là đang chờ bạn nhận. Nhận xong, hệ thống mới tìm tài xế "
-                + "tới lấy món. Không nhận trong 3 phút thì đơn tự hủy. Khi bạn tắt app, hệ thống xác nhận hộ.</html>"),
-                BorderLayout.SOUTH);
 
         JPanel shops = new JPanel(new BorderLayout(0, 6));
         shops.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -279,7 +276,8 @@ public class MerchantPanel extends JPanel {
             for (JsonElement e : r.getAsJsonArray())
                 if ("PLACED".equals(Json.str(e.getAsJsonObject(), "status"))) waiting++;
             pendingHint.setText("<html>" + (waiting == 0 ? "Không có đơn nào đang chờ bạn nhận"
-                    : "🔔 " + waiting + " đơn đang chờ bạn nhận") + "&nbsp;</html>");
+                    : waiting + " đơn đang chờ bạn nhận") + "&nbsp;</html>");
+            pendingHint.setIcon(waiting == 0 ? null : Icons.get("bell", 15, Theme.PEACH_DEEP));
             pendingHint.setForeground(waiting == 0 ? Theme.MUTED : Theme.PEACH_DEEP);
             shopTabs.setTitleAt(0, waiting == 0 ? "🧾 Đơn hàng" : "🧾 Đơn hàng (" + waiting + ")");
         });
@@ -298,7 +296,7 @@ public class MerchantPanel extends JPanel {
     }
 
     private void accept(long id) {
-        net.run(this, "MERCHANT_ORDER_ACCEPT", Json.obj("id", id), r -> {
+        net.run(this, acceptBtn, "MERCHANT_ORDER_ACCEPT", Json.obj("id", id), r -> {
             Toast.info(this, "✅", "Đã nhận đơn #" + id, "Hệ thống đang tìm tài xế tới lấy món.", Theme.MINT);
             loadShop();
         });
@@ -323,7 +321,7 @@ public class MerchantPanel extends JPanel {
             reason = JOptionPane.showInputDialog(this, "Nhập lý do:", "Từ chối đơn", JOptionPane.QUESTION_MESSAGE);
             if (reason == null || reason.isBlank()) return;
         }
-        net.run(this, "MERCHANT_ORDER_REJECT", Json.obj("id", Json.lng(o, "id", 0), "reason", reason.trim()),
+        net.run(this, rejectBtn, "MERCHANT_ORDER_REJECT", Json.obj("id", Json.lng(o, "id", 0), "reason", reason.trim()),
                 r -> loadShop());
     }
 
@@ -470,7 +468,7 @@ public class MerchantPanel extends JPanel {
 
     private void withdraw() {
         if (application == null || !Ui.confirm(this, "Rút lại hồ sơ \"" + Json.str(application, "name") + "\"?")) return;
-        net.run(this, "MERCHANT_WITHDRAW", Json.obj("id", Json.lng(application, "id", 0)), r -> {
+        net.run(this, withdrawBtn, "MERCHANT_WITHDRAW", Json.obj("id", Json.lng(application, "id", 0)), r -> {
             refill(application);
             showApplication(null);
         });
@@ -612,9 +610,7 @@ public class MerchantPanel extends JPanel {
         }
         if (shopImage.imageId() != null) req.addProperty("image_id", shopImage.imageId());
 
-        submitBtn.setEnabled(false);
-        net.run(this, "MERCHANT_APPLY", req, r -> {
-            submitBtn.setEnabled(true);
+        net.run(this, submitBtn, "MERCHANT_APPLY", req, r -> {
             JsonObject app = r.getAsJsonObject();
             Toast.info(this, "📨", "Đã gửi hồ sơ", Json.str(app, "message", "Hồ sơ đang chờ Admin duyệt."), Theme.MINT);
             wantApplyForm = false;

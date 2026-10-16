@@ -23,11 +23,10 @@ public class RidePanel extends JPanel {
 
     private final PlaceField pickup, drop;
     private final JRadioButton pickPickup = new JRadioButton("Điểm đón", true), pickDrop = new JRadioButton("Điểm đến");
-    private final JLabel routeInfo = Ui.muted("Chọn điểm đón và điểm đến để xem giá");
+    private final JLabel routeInfo = Ui.muted(" ");
     private final JToggleButton bike = choice(), car = choice();
     private final JComboBox<String> payment = Ui.codes("CASH", "WALLET");
     private final VoucherBox voucher = new VoucherBox();
-    private final JLabel discountInfo = Ui.muted(" ");
     private final JPanel mapSlot = new JPanel(new BorderLayout());
     private final JButton bookBtn;
     private final JPanel formBox = Ui.column();
@@ -57,7 +56,7 @@ public class RidePanel extends JPanel {
         formBox.setOpaque(false);
         formBox.setBorder(null);
         formBox.add(Ui.section("Đặt xe"));
-        formBox.add(Ui.row(Ui.button("📍 Lấy vị trí hiện tại", Theme.MINT, this::useMyLocation)));
+        formBox.add(Ui.row(Ui.button("📍 Lấy vị trí hiện tại", Theme.SURFACE, this::useMyLocation)));
         formBox.add(pickup);
         formBox.add(Box.createVerticalStrut(6));
         formBox.add(drop);
@@ -66,8 +65,7 @@ public class RidePanel extends JPanel {
         g.add(pickDrop);
         pickPickup.setOpaque(false);
         pickDrop.setOpaque(false);
-        formBox.add(Ui.row(Ui.muted("Bấm bản đồ để chọn:"), pickPickup, pickDrop));
-        formBox.add(Ui.row(Ui.button("Xem quãng đường & giá", Theme.SKY, this::requestQuote)));
+        formBox.add(Ui.row(Ui.muted("Chọn trên bản đồ:"), pickPickup, pickDrop));
         formBox.add(routeInfo);
 
         formBox.add(Ui.section("Chọn loại xe"));
@@ -75,6 +73,8 @@ public class RidePanel extends JPanel {
         vg.add(bike);
         vg.add(car);
         bike.setSelected(true);
+        bike.setIcon(Icons.get("bike", 24, Theme.INK));
+        car.setIcon(Icons.get("car", 24, Theme.INK));
         JPanel vehicles = new JPanel(new GridLayout(1, 2, 8, 0));
         vehicles.setOpaque(false);
         vehicles.add(bike);
@@ -83,10 +83,11 @@ public class RidePanel extends JPanel {
         formBox.add(vehicles);
         formBox.add(Box.createVerticalStrut(8));
         formBox.add(Ui.row(Ui.muted("Thanh toán:"), payment));
-        voucher.addActionListener(e -> requestQuote());
-        formBox.add(Ui.section("Thẻ giảm giá 🎟"));
+        voucher.addActionListener(e -> {
+            if (pickup.has() && drop.has()) requestQuote();
+        });
+        formBox.add(Ui.section("Thẻ giảm giá"));
         formBox.add(Ui.grow(voucher));
-        formBox.add(discountInfo);
         bookBtn = Ui.button("Đặt xe", Theme.LAVENDER, this::book);
         formBox.add(Box.createVerticalStrut(6));
         formBox.add(Ui.grow(bookBtn));
@@ -114,8 +115,6 @@ public class RidePanel extends JPanel {
         actions.add(newBtn);
         card.add(actions, BorderLayout.SOUTH);
         trackBox.add(card);
-        trackBox.add(Box.createVerticalStrut(8));
-        trackBox.add(Ui.button("Căn bản đồ theo chuyến", Theme.SURFACE, map::fit));
         trackBox.setVisible(false);
 
         JPanel col = Ui.column();
@@ -171,7 +170,7 @@ public class RidePanel extends JPanel {
 
     private void pointsChanged() {
         quote = null;
-        routeInfo.setText(pickup.has() && drop.has() ? "Bấm \"Xem quãng đường & giá\"" : "Chọn điểm đón và điểm đến để xem giá");
+        routeInfo.setText(" ");
         renderChoices();
         drawMap(false);
         if (pickup.has() && drop.has()) requestQuote();
@@ -195,10 +194,7 @@ public class RidePanel extends JPanel {
     }
 
     private void requestQuote() {
-        if (!pickup.has() || !drop.has()) {
-            Ui.info(this, "Hãy chọn điểm đón và điểm đến (tìm địa chỉ hoặc bấm lên bản đồ)");
-            return;
-        }
+        if (!pickup.has() || !drop.has()) return;
         double[] a = {pickup.lat(), pickup.lng(), drop.lat(), drop.lng()};
         routeInfo.setText("Đang tính...");
         net.run(this, "RIDE_QUOTE", points(), r -> {
@@ -216,14 +212,10 @@ public class RidePanel extends JPanel {
         JsonObject prices = quote == null ? null : quote.getAsJsonObject("prices");
         boolean hasVoucher = quote != null && quote.has("prices_after");
         JsonObject after = hasVoucher ? quote.getAsJsonObject("prices_after") : prices;
-        bike.setText(choiceText("🛵 Xe máy", prices == null ? "—" : Ui.money(after, "BIKE"),
+        bike.setText(choiceText("Xe máy", prices == null ? "—" : Ui.money(after, "BIKE"),
                 hasVoucher ? Ui.money(prices, "BIKE") : null));
-        car.setText(choiceText("🚗 Ô tô", prices == null ? "—" : Ui.money(after, "CAR"),
+        car.setText(choiceText("Ô tô", prices == null ? "—" : Ui.money(after, "CAR"),
                 hasVoucher ? Ui.money(prices, "CAR") : null));
-        JsonObject v = voucher.selected();
-        discountInfo.setText(v == null ? " "
-                : "Đang dùng mã " + Json.str(v, "code") + " — giảm " + Json.integer(v, "percent", 0)
-                  + "%, tối đa " + Ui.money(Json.dbl(v, "max_discount", 0)));
         bookBtn.setEnabled(quote != null);
     }
 
@@ -236,6 +228,7 @@ public class RidePanel extends JPanel {
     private static JToggleButton choice() {
         JToggleButton b = new JToggleButton();
         b.setBackground(Theme.SURFACE);
+        b.setIconTextGap(10);
         b.setPreferredSize(new Dimension(120, 64));
         return b;
     }
@@ -250,7 +243,7 @@ public class RidePanel extends JPanel {
         req.addProperty("drop_address", drop.address());
         req.addProperty("vehicle_type", vehicle);
         req.addProperty("payment_method", (String) payment.getSelectedItem());
-        net.run(this, "RIDE_BOOK", req, r -> {
+        net.run(this, bookBtn, "RIDE_BOOK", req, r -> {
             JsonObject o = r.getAsJsonObject();
             voucher.reload(net, null);
             showRide(o, o.get("points"));
@@ -260,7 +253,7 @@ public class RidePanel extends JPanel {
 
     private void cancel() {
         if (ride == null || !Ui.confirm(this, "Hủy chuyến này?")) return;
-        net.run(this, "RIDE_CANCEL", Json.obj("id", id(ride)), r -> showRide(r.getAsJsonObject(), ridePoints));
+        net.run(this, cancelBtn, "RIDE_CANCEL", Json.obj("id", id(ride)), r -> showRide(r.getAsJsonObject(), ridePoints));
     }
 
     private void review() {
@@ -298,8 +291,9 @@ public class RidePanel extends JPanel {
         }
     }
 
+    /** Báo trạng thái bằng thông báo nổi, không chặn màn hình như hộp thoại. */
     private void toast(String msg) {
-        if (visible.getAsBoolean()) Ui.info(this, msg);
+        if (visible.getAsBoolean()) Toast.info(this, "🛵", "Chuyến #" + id(ride), msg, Theme.LAVENDER);
     }
 
     private void showRide(JsonObject r, JsonElement points) {

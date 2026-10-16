@@ -37,7 +37,7 @@ public class PlaceField extends JPanel {
         });
         add(mark, BorderLayout.WEST);
         add(text);
-        add(Ui.button("Tìm", Theme.SKY, this::search), BorderLayout.EAST);
+        add(Ui.button("Tìm", Theme.SURFACE, this::search), BorderLayout.EAST);
         setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
     }
 
