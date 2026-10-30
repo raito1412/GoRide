@@ -13,3 +13,6 @@ out/
 logs/
 *.log
 docs/OOAD.xlsx
+
+# File khoá tạm của Word khi đang mở
+~$*

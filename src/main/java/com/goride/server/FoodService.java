@@ -99,8 +99,8 @@ public final class FoodService {
     }
 
     static JsonObject order(ClientHandler client, JsonObject d) {
-        if (Db.one("SELECT id FROM food_orders WHERE user_id=? AND status IN " + ACTIVE, client.userId) != null)
-            throw new AppException("Bạn đang có một đơn đồ ăn chưa hoàn tất");
+        if (hasActiveOrder(client.userId)) throw new AppException("Bạn đang có một đơn đồ ăn chưa hoàn tất");
+        if (RideService.hasActiveRide(client.userId)) throw new AppException("Bạn đang có chuyến xe chưa kết thúc, xong chuyến mới đặt đồ ăn được");
         String payment = RideService.paymentMethod(Json.str(d, "payment_method", "CASH"));
         String address = Json.req(d, "delivery_address", "Địa chỉ giao hàng");
         Calc c = calc(d);
@@ -228,6 +228,7 @@ public final class FoodService {
     private static JsonObject offerFor(ClientHandler h, JsonObject o) {
         long id = o.get("id").getAsLong();
         if (h.rejectedOrders.contains(id) || !Sessions.freeForFood(h.userId)) return null;
+        if (!Sessions.jobs(h.userId).isEmpty() && !canBatchMore(h.userId)) return null;
         Double km = Sessions.distanceKm(h.userId, o.get("restaurant_lat").getAsDouble(), o.get("restaurant_lng").getAsDouble());
         if (km == null || km > Config.getDouble("MATCH_RADIUS_KM", 5)) return null;
         JsonObject offer = o.deepCopy();
@@ -245,8 +246,22 @@ public final class FoodService {
         return out;
     }
 
+    static boolean hasActiveOrder(long userId) {
+        return Db.one("SELECT id FROM food_orders WHERE user_id=? AND status IN " + ACTIVE, userId) != null;
+    }
+
+    /**
+     * Chỉ nhận thêm đơn giao gộp khi chưa lấy món ở lô hiện tại (đơn nào cũng còn ACCEPTED / AT_RESTAURANT).
+     * Đã cầm món trên xe rồi thì phải giao xong lô này, tránh món nguội vì chạy vòng đi lấy đơn khác.
+     */
+    static boolean canBatchMore(long driverId) {
+        return Db.one("SELECT id FROM food_orders WHERE driver_id=? AND status IN ('PICKED_UP','DELIVERING') LIMIT 1", driverId) == null;
+    }
+
     static JsonObject accept(ClientHandler c, JsonObject d) {
         long id = Json.reqLong(d, "id");
+        if (!Sessions.jobs(c.userId).isEmpty() && !canBatchMore(c.userId))
+            throw new AppException("Đã lấy món rồi, giao xong lô này mới nhận thêm đơn được");
         DriverJobs.claim(c, "FOOD", id);
         int n;
         try {

@@ -11,6 +11,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 /** User: chọn điểm đón/đến, xem giá, đặt xe Bike/Car, theo dõi tài xế realtime, hủy, đánh giá. */
 public class RidePanel extends JPanel {
@@ -42,11 +43,17 @@ public class RidePanel extends JPanel {
     private JsonElement ridePoints;
     private double[] driverPos;
 
-    public RidePanel(Net net, MapPanel map, BooleanSupplier visible) {
+    /** Lý do chưa được đặt xe lúc này (đang có đơn đồ ăn dở); null = đặt được. */
+    private final Supplier<String> blocker;
+    private final JLabel blockInfo = Ui.muted(" ");
+
+    public RidePanel(Net net, MapPanel map, BooleanSupplier visible, Supplier<String> blocker) {
         super(new BorderLayout());
         this.net = net;
         this.map = map;
         this.visible = visible;
+        this.blocker = blocker;
+        blockInfo.setForeground(Theme.ROSE_DEEP);
         pickup = new PlaceField(net, "Điểm đón", Theme.MINT_DEEP, this::biasPoint);
         drop = new PlaceField(net, "Bạn muốn đi đâu?", Theme.ROSE_DEEP, this::biasPoint);
         pickup.onChange(this::pointsChanged);
@@ -91,6 +98,7 @@ public class RidePanel extends JPanel {
         bookBtn = Ui.button("Đặt xe", Theme.LAVENDER, this::book);
         formBox.add(Box.createVerticalStrut(6));
         formBox.add(Ui.grow(bookBtn));
+        formBox.add(blockInfo);
         renderChoices();
         voucher.reload(net, null);
 
@@ -216,7 +224,9 @@ public class RidePanel extends JPanel {
                 hasVoucher ? Ui.money(prices, "BIKE") : null));
         car.setText(choiceText("Ô tô", prices == null ? "—" : Ui.money(after, "CAR"),
                 hasVoucher ? Ui.money(prices, "CAR") : null));
-        bookBtn.setEnabled(quote != null);
+        String block = blocker.get();
+        blockInfo.setText(block == null ? " " : block);
+        bookBtn.setEnabled(quote != null && block == null);
     }
 
     private static String choiceText(String name, String price, String struck) {
@@ -280,21 +290,21 @@ public class RidePanel extends JPanel {
 
     private void onRideUpdate(JsonObject d) {
         if (ride != null && id(ride) != id(d)) return;
-        String before = status();
-        showRide(d, ridePoints);
-        String now = status();
-        if (!now.equals(before)) {
-            if (now.equals("ACCEPTED")) toast("Đã có tài xế " + Json.str(d, "driver_name", "") + " nhận chuyến!");
-            else if (now.equals("ARRIVED")) toast("Tài xế đã tới điểm đón");
-            else if (now.equals("COMPLETED")) toast("Chuyến đi hoàn thành. Cảm ơn bạn đã dùng GoRide!");
-            else if (now.equals("CANCELLED")) toast("Chuyến đã hủy: " + Json.str(d, "cancel_reason", ""));
-        }
+        showRide(d, ridePoints); // thông báo trạng thái do UserFrame lo, để màn nào cũng thấy
     }
 
-    /** Báo trạng thái bằng thông báo nổi, không chặn màn hình như hộp thoại. */
-    private void toast(String msg) {
-        if (visible.getAsBoolean()) Toast.info(this, "🛵", "Chuyến #" + id(ride), msg, Theme.LAVENDER);
+    /** Mã chuyến đang chạy, -1 nếu không có. */
+    public long activeRideId() {
+        return ride != null && !FINISHED.contains(status()) ? id(ride) : -1;
     }
+
+    /** Trạng thái đang hiển thị của chuyến id (null nếu không phải chuyến đang theo dõi). */
+    public String statusOf(long rideId) {
+        return ride != null && id(ride) == rideId ? status() : null;
+    }
+
+    /** Tính lại quyền bấm Đặt xe khi việc khác của khách đổi trạng thái. */
+    public void refreshBlock() { renderChoices(); }
 
     private void showRide(JsonObject r, JsonElement points) {
         ride = r;

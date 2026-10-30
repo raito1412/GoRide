@@ -1,0 +1,377 @@
+%% GoRide – Sequence Diagram (Mermaid). Mỗi sơ đồ dán riêng vào draw.io: Arrange > Insert > Advanced > Mermaid.
+
+%% ==== SD01 – Đăng nhập (use case: Đăng nhập & đăng xuất) ====
+sequenceDiagram
+    actor ND as Người dùng
+    participant UI as «boundary» LoginFrame
+    participant AU as «control» AuthService
+    participant US as «entity» User
+    participant SE as «control» Sessions
+    ND->>UI: 1. nhập SĐT, mật khẩu, bấm Đăng nhập()
+    UI->>AU: 2. login(phone, password)
+    AU->>US: 3. tìm tài khoản theo SĐT()
+    US-->>AU: 4. thông tin tài khoản
+    AU->>AU: 5. kiểm tra mật khẩu, trạng thái khoá()
+    alt Sai SĐT/mật khẩu hoặc tài khoản bị khoá
+        AU-->>UI: 6. báo lỗi
+        UI-->>ND: 7. hiển thị lỗi
+    else Hợp lệ
+        AU->>SE: 8. bind(phiên) – đóng phiên cũ nếu có()
+        SE-->>AU: 9. ok
+        AU-->>UI: 10. thông tin tài khoản + vai trò
+        UI-->>ND: 11. mở màn hình theo vai trò
+    end
+
+%% ==== SD02 – Đăng ký tài khoản và xác thực OTP (use case: Đăng ký tài khoản) ====
+sequenceDiagram
+    actor KH as Khách chưa đăng nhập
+    participant UI as «boundary» LoginFrame
+    participant AU as «control» AuthService
+    participant OT as «control» OtpService
+    participant EO as «entity» EmailOtp
+    participant US as «entity» User
+    participant GM as «boundary» Gmail SMTP
+    KH->>UI: 1. nhập thông tin đăng ký, bấm Tạo tài khoản()
+    UI->>AU: 2. register(thông tin)
+    AU->>US: 3. kiểm tra trùng SĐT / biển số()
+    US-->>AU: 4. kết quả
+    opt Thông tin hợp lệ, chưa có tài khoản
+        AU->>OT: 5. start(email, thông tin đăng ký)
+        OT->>EO: 6. «create» lưu mã băm, hết hạn 5 phút()
+        OT->>GM: 7. gửi mã OTP 6 số()
+        OT-->>AU: 8. đã gửi
+        AU-->>UI: 9. chuyển màn nhập mã
+    end
+    KH->>UI: 10. nhập mã OTP()
+    UI->>AU: 11. registerVerify(email, mã)
+    AU->>OT: 12. consume(email, mã)
+    OT->>EO: 13. kiểm tra mã, hạn, số lần sai()
+    alt Mã đúng, còn hạn
+        OT-->>AU: 14. thông tin đăng ký
+        AU->>US: 15. «create» tạo tài khoản (tài xế - chờ duyệt)()
+        AU-->>UI: 16. đăng ký thành công
+    else Sai mã / hết hạn / sai quá 5 lần
+        OT-->>UI: 17. báo lỗi, cho gửi lại mã
+    end
+    UI-->>KH: 18. hiển thị kết quả
+
+%% ==== SD03 – Đặt xe (use case: Đặt chuyến xe) ====
+sequenceDiagram
+    actor KH as Khách hàng
+    participant UI as «boundary» RidePanel
+    participant RS as «control» RideService
+    participant MB as «boundary» Mapbox API
+    participant VS as «control» VoucherService
+    participant RD as «entity» Ride
+    participant DF as «boundary» DriverFrame
+    KH->>UI: 1. chọn điểm đón, điểm đến()
+    UI->>RS: 2. quote(điểm đón, điểm đến)
+    RS->>MB: 3. tính tuyến đường()
+    MB-->>RS: 4. quãng đường, thời gian
+    RS->>RS: 5. tính giá xe máy / ô tô theo bảng giá()
+    RS-->>UI: 6. báo giá
+    KH->>UI: 7. chọn xe, thanh toán, thẻ giảm giá, bấm Đặt xe()
+    UI->>RS: 8. book(chuyến)
+    RS->>VS: 9. lookup(mã thẻ)
+    VS-->>RS: 10. tiền giảm
+    opt Không có chuyến dở, quãng đường ≥ 200 m
+        RS->>RD: 11. «create» tạo chuyến (SEARCHING)()
+        RS->>VS: 12. markUsed(thẻ)
+        RS->>DF: 13. RIDE_REQUEST (tài xế đúng loại xe, ≤ 5 km)
+        RS-->>UI: 14. thông tin chuyến
+        UI-->>KH: 15. hiển thị Đang tìm tài xế
+    end
+
+%% ==== SD04 – Huỷ chuyến xe (use case: Hủy chuyến / Hủy đơn) ====
+sequenceDiagram
+    actor KH as Khách hàng
+    participant UI as «boundary» RidePanel
+    participant RS as «control» RideService
+    participant RD as «entity» Ride
+    participant VS as «control» VoucherService
+    participant DF as «boundary» DriverFrame
+    KH->>UI: 1. bấm Huỷ chuyến, xác nhận()
+    UI->>RS: 2. cancelByUser(id)
+    RS->>RD: 3. đổi sang CANCELLED nếu chưa đón khách()
+    RD-->>RS: 4. số dòng cập nhật
+    alt Chưa đón khách (SEARCHING / ACCEPTED / ARRIVED)
+        RS->>VS: 5. release(chuyến) – hoàn thẻ()
+        RS->>DF: 6. RIDE_CANCELLED (nếu đã có tài xế)
+        RS-->>UI: 7. chuyến đã huỷ
+        UI-->>KH: 8. hiển thị đã huỷ
+    else Đã đón khách hoặc đã kết thúc
+        RS-->>UI: 9. báo lỗi Không thể huỷ
+    end
+
+%% ==== SD05 – Tài xế nhận chuyến và cập nhật trạng thái (use case: Tiếp nhận & xử lý công việc) ====
+sequenceDiagram
+    actor TX as Tài xế
+    participant UI as «boundary» DriverFrame
+    participant RS as «control» RideService
+    participant DJ as «control» DriverJobs
+    participant RD as «entity» Ride
+    participant PM as «entity» Payment
+    participant KH as «boundary» RidePanel (khách)
+    TX->>UI: 1. bấm Nhận việc()
+    UI->>RS: 2. accept(id)
+    RS->>DJ: 3. claim(chuyến) – chỉ khi đang rảnh()
+    RS->>RD: 4. gán tài xế nếu còn SEARCHING()
+    alt Đã có tài xế khác nhận
+        RS-->>UI: 5. báo lỗi, gỡ yêu cầu
+    else Nhận được
+        RS->>KH: 6. RIDE_UPDATE (đã có tài xế)
+        RS-->>UI: 7. thông tin chuyến
+        UI->>UI: 8. vẽ tuyến, xe tự chạy tới điểm đón()
+    end
+    loop Đã tới điểm đón → Đã đón khách → Hoàn thành
+        TX->>UI: 9. bấm bước kế tiếp()
+        UI->>RS: 10. driverStatus(id, trạng thái)
+        opt Đã tới / Hoàn thành
+            RS->>RS: 11. kiểm tra xe cách điểm cần tới ≤ 300 m()
+        end
+        RS->>RD: 12. cập nhật trạng thái()
+        RS->>KH: 13. RIDE_UPDATE
+    end
+    RS->>PM: 14. «create» tạo thanh toán khi hoàn thành()
+    RS->>DJ: 15. release(chuyến)
+
+%% ==== SD06 – Đặt đồ ăn (use case: Đặt đồ ăn) ====
+sequenceDiagram
+    actor KH as Khách hàng
+    participant UI as «boundary» FoodPanel
+    participant FS as «control» FoodService
+    participant MB as «boundary» Mapbox API
+    participant VS as «control» VoucherService
+    participant FO as «entity» FoodOrder
+    participant MP as «boundary» MerchantPanel
+    KH->>UI: 1. chọn quán, món, địa chỉ giao()
+    UI->>FS: 2. quote(giỏ hàng, địa chỉ)
+    FS->>FS: 3. tính tiền món từ thực đơn()
+    FS->>MB: 4. tính khoảng cách quán → nhà khách()
+    MB-->>FS: 5. quãng đường
+    FS->>VS: 6. lookup(mã thẻ)
+    FS-->>UI: 7. tiền món + phí giao − giảm giá
+    KH->>UI: 8. bấm Đặt món()
+    UI->>FS: 9. order(đơn)
+    opt ≤ 20 km và không có đơn dở
+        FS->>FO: 10. «create» tạo đơn (PLACED)()
+        FS->>VS: 11. markUsed(thẻ)
+        FS->>MP: 12. MERCHANT_ORDER (báo chủ quán)
+        FS-->>UI: 13. thông tin đơn
+        UI-->>KH: 14. chuyển màn theo dõi đơn
+    end
+
+%% ==== SD07 – Chủ quán nhận / từ chối đơn (use case: Xử lý đơn đồ ăn) ====
+sequenceDiagram
+    actor CQ as Chủ quán
+    participant UI as «boundary» MerchantPanel
+    participant MS as «control» MerchantService
+    participant FS as «control» FoodService
+    participant FO as «entity» FoodOrder
+    participant VS as «control» VoucherService
+    participant DF as «boundary» DriverFrame
+    CQ->>UI: 1. chọn đơn đang chờ()
+    alt Nhận đơn
+        UI->>MS: 2. acceptOrder(id)
+        MS->>FS: 3. confirm(id)
+        FS->>FO: 4. đổi sang CONFIRMED()
+        FS->>DF: 5. FOOD_REQUEST (tài xế gần quán)
+        MS-->>UI: 6. đã nhận đơn
+    else Từ chối (bắt buộc lý do)
+        UI->>MS: 7. rejectOrder(id, lý do)
+        MS->>FO: 8. CANCELLED + lý do (chỉ khi PLACED)()
+        MS->>VS: 9. release(đơn) – hoàn thẻ()
+        MS-->>UI: 10. đã từ chối
+    end
+    UI-->>CQ: 11. cập nhật bảng đơn
+
+%% ==== SD08 – Nhận đơn giao gộp và xem lộ trình tối ưu (use case: Tiếp nhận & xử lý công việc) ====
+sequenceDiagram
+    actor TX as Tài xế
+    participant UI as «boundary» DriverFrame
+    participant FS as «control» FoodService
+    participant DJ as «control» DriverJobs
+    participant FO as «entity» FoodOrder
+    participant RP as «control» RoutePlanner
+    participant MB as «boundary» Mapbox API
+    TX->>UI: 1. bấm Nhận việc (đơn đồ ăn)()
+    UI->>FS: 2. accept(id)
+    FS->>DJ: 3. claim(đơn)
+    alt Đang chở khách hoặc đã giữ 3 đơn
+        DJ-->>UI: 4. báo lỗi
+    else Được nhận
+        FS->>FO: 5. gán tài xế (ACCEPTED) nếu còn CONFIRMED()
+        FS-->>UI: 6. thông tin đơn
+        UI->>RP: 7. plan(tài xế)
+        RP->>FO: 8. lấy các đơn đang giữ (điểm lấy, điểm giao)()
+        RP->>MB: 9. ma trận thời gian giữa các điểm()
+        MB-->>RP: 10. ma trận
+        RP->>RP: 11. duyệt nhánh-cận - lấy trước giao sau()
+        RP-->>UI: 12. thứ tự điểm dừng, ETA, km tiết kiệm
+        UI-->>TX: 13. lộ trình đánh số trên bản đồ
+    end
+
+%% ==== SD09 – Giao đơn đồ ăn theo lộ trình (use case: Tiếp nhận & xử lý công việc) ====
+sequenceDiagram
+    actor TX as Tài xế
+    participant UI as «boundary» DriverFrame
+    participant FS as «control» FoodService
+    participant RP as «control» RoutePlanner
+    participant FO as «entity» FoodOrder
+    participant PM as «entity» Payment
+    participant KH as «boundary» FoodPanel (khách)
+    loop Từng điểm dừng - Đã tới quán → Đã lấy món → Đã giao
+        TX->>UI: 1. bấm bước kế tiếp()
+        UI->>FS: 2. driverStatus(id, trạng thái)
+        opt Đã tới quán / Đã giao
+            FS->>FS: 3. kiểm tra xe cách điểm ≤ 300 m()
+        end
+        FS->>FO: 4. cập nhật trạng thái()
+        FS->>KH: 5. FOOD_UPDATE
+        opt Đã giao
+            FS->>PM: 6. «create» tạo thanh toán()
+        end
+        FS-->>UI: 7. đơn sau cập nhật
+        UI->>RP: 8. plan() – tính lại từ vị trí hiện tại
+        RP-->>UI: 9. điểm dừng kế tiếp
+    end
+    UI-->>TX: 10. giao xong, tài xế rảnh
+
+%% ==== SD10 – Theo dõi vị trí tài xế (GPS) (use case: Theo dõi hành trình trực tiếp) ====
+sequenceDiagram
+    participant GS as «boundary» GpsSender (tài xế)
+    participant UG as «control» UdpGpsServer
+    participant SE as «control» Sessions
+    participant DR as «entity» Driver
+    participant UI as «boundary» RidePanel / FoodPanel
+    actor KH as Khách hàng
+    loop Mỗi 2 giây khi Online
+        GS->>UG: 1. gói UDP - token, lat, lng, seq
+        UG->>UG: 2. bỏ gói đến trễ / nhảy xa bất thường()
+        UG->>SE: 3. lưu vị trí tài xế()
+        opt Đã 15 giây kể từ lần ghi trước
+            UG->>DR: 4. ghi last_lat, last_lng()
+        end
+        opt Tài xế đang có việc
+            UG->>UI: 5. DRIVER_LOCATION (qua TCP)
+            UI-->>KH: 6. cập nhật xe trên bản đồ
+        end
+    end
+
+%% ==== SD11 – Đánh giá tài xế / quán (use case: Đánh giá dịch vụ) ====
+sequenceDiagram
+    actor KH as Khách hàng
+    participant UI as «boundary» UserFrame
+    participant AS as «control» AccountService
+    participant TR as «entity» Ride / FoodOrder
+    participant RV as «entity» Review
+    participant DR as «entity» Driver / Restaurant
+    participant MP as «boundary» MerchantPanel
+    KH->>UI: 1. chọn chuyến/đơn đã xong, bấm Đánh giá()
+    UI-->>KH: 2. hộp thoại chọn sao, nhận xét
+    KH->>UI: 3. chọn 1–5 sao, nhập nhận xét()
+    UI->>AS: 4. review(loại, mã, sao, đối tượng)
+    AS->>TR: 5. kiểm tra đã hoàn thành và là của khách()
+    AS->>RV: 6. kiểm tra chưa đánh giá()
+    alt Hợp lệ
+        AS->>RV: 7. «create» lưu đánh giá()
+        AS->>DR: 8. tính lại điểm trung bình()
+        opt Đánh giá quán
+            AS->>MP: 9. MERCHANT_REVIEW
+        end
+        AS-->>UI: 10. cảm ơn bạn đã đánh giá
+    else Chưa hoàn thành / đã đánh giá / sai số sao
+        AS-->>UI: 11. báo lỗi
+    end
+
+%% ==== SD12 – Nộp và duyệt hồ sơ mở quán (use case: Nộp hồ sơ mở quán / Quản lý người dùng & đối tác) ====
+sequenceDiagram
+    actor KH as Khách hàng
+    participant MP as «boundary» MerchantPanel
+    participant MS as «control» MerchantService
+    participant AP as «entity» RestaurantApplication
+    participant RE as «entity» Restaurant
+    participant AF as «boundary» AdminFrame
+    actor AD as Admin
+    KH->>MP: 1. điền hồ sơ, chọn ảnh, thêm món()
+    MP->>MP: 2. tải ảnh lên (IMAGE_UPLOAD)()
+    MP->>MS: 3. apply(hồ sơ)
+    MS->>AP: 4. «create» tạo hồ sơ PENDING()
+    MS-->>MP: 5. đã gửi, chờ duyệt
+    AD->>AF: 6. xem chi tiết hồ sơ, chọn Duyệt / Từ chối()
+    AF->>MS: 7. review(id, kết quả, ghi chú)
+    alt Duyệt
+        MS->>RE: 8. «create» tạo quán + thực đơn()
+        MS->>AP: 9. APPROVED()
+    else Từ chối (bắt buộc lý do)
+        MS->>AP: 10. REJECTED + lý do()
+    end
+    MS->>MP: 11. MERCHANT_UPDATE (báo kết quả)
+    MP-->>KH: 12. hiển thị kết quả
+
+%% ==== SD13 – Xem đối soát tháng và xuất hoá đơn (use case: Đối soát doanh thu quán / Xem thu nhập & đối soát) ====
+sequenceDiagram
+    actor ND as Tài xế / Chủ quán
+    participant UI as «boundary» StatementView
+    participant SS as «control» StatementService
+    participant TR as «entity» Ride / FoodOrder
+    ND->>UI: 1. chọn tháng()
+    UI->>SS: 2. driver() / merchant() (tháng)
+    SS->>TR: 3. lấy chuyến/đơn hoàn thành trong tháng()
+    TR-->>SS: 4. danh sách
+    SS->>SS: 5. chiết khấu từng dòng (20% / 25%)()
+    SS->>TR: 6. lũy kế được hưởng từ đầu năm()
+    opt Lũy kế > 200 triệu
+        SS->>SS: 7. thuế GTGT 3% + TNCN 1,5%()
+    end
+    SS->>SS: 8. thực nhận = hưởng − thuế − tiền mặt thu hộ()
+    SS-->>UI: 9. bảng đối soát, ngày chi trả
+    UI-->>ND: 10. hiển thị
+    opt Bấm Xuất hoá đơn tháng
+        UI->>UI: 11. ghi file HTML để in / lưu PDF()
+    end
+
+%% ==== SD14 – Admin khoá tài khoản và duyệt tài xế (use case: Quản lý người dùng & đối tác) ====
+sequenceDiagram
+    actor AD as Admin
+    participant UI as «boundary» AdminFrame
+    participant AS as «control» AdminService
+    participant US as «entity» User
+    participant DR as «entity» Driver
+    participant SE as «control» Sessions
+    participant DF as «boundary» DriverFrame
+    AD->>UI: 1. chọn tài khoản, bấm Khoá()
+    UI->>AS: 2. setUserStatus(id, LOCKED)
+    AS->>US: 3. cập nhật status = LOCKED()
+    AS->>SE: 4. kick(phiên đang mở) – SESSION_CLOSED()
+    AS-->>UI: 5. đã khoá
+    AD->>UI: 6. chọn tài xế, bấm Duyệt / Từ chối()
+    UI->>AS: 7. setDriverApproval(id, kết quả)
+    AS->>DR: 8. cập nhật approval (từ chối thì tắt Online)()
+    AS->>DF: 9. DRIVER_APPROVAL
+    AS-->>UI: 10. đã cập nhật
+    UI-->>AD: 11. làm mới bảng
+
+%% ==== SD15 – Tự xác nhận đơn và huỷ khi quá thời gian chờ (use case: Hệ thống tự động) ====
+sequenceDiagram
+    participant TM as «control» Bộ hẹn giờ
+    participant FS as «control» FoodService
+    participant FO as «entity» FoodOrder
+    participant VS as «control» VoucherService
+    participant DF as «boundary» DriverFrame
+    participant KH as «boundary» FoodPanel (khách)
+    TM->>FS: 1. autoConfirm(id) – sau 3 giây
+    opt Chủ quán không mở app
+        FS->>FO: 2. CONFIRMED()
+        FS->>DF: 3. FOOD_REQUEST
+    end
+    TM->>FS: 4. timeout(id) – sau 180 giây
+    alt Còn PLACED (quán chưa nhận)
+        FS->>FO: 5. CANCELLED - Quán không xác nhận kịp()
+    else CONFIRMED mà chưa có tài xế
+        FS->>FO: 6. CANCELLED - Không tìm thấy tài xế()
+    end
+    opt Đơn vừa bị huỷ
+        FS->>VS: 7. release(đơn) – hoàn thẻ()
+        FS->>KH: 8. FOOD_UPDATE (đã huỷ)
+    end

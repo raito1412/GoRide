@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Đặt đồ ăn theo từng bước, mỗi bước một màn hình riêng:
@@ -72,11 +73,15 @@ public class FoodPanel extends JPanel {
     private JsonElement orderPoints;
     private double[] driverPos;
 
-    public FoodPanel(Net net, MapPanel map, Runnable onStepChanged) {
+    /** Lý do chưa được đặt món lúc này (đang có chuyến xe dở); null = đặt được. */
+    private final Supplier<String> blocker;
+
+    public FoodPanel(Net net, MapPanel map, Runnable onStepChanged, Supplier<String> blocker) {
         super(new BorderLayout());
         this.net = net;
         this.map = map;
         this.onStepChanged = onStepChanged;
+        this.blocker = blocker;
         orderBtn = Ui.button("Đặt món", Theme.PEACH, this::placeOrder);
         address = new PlaceField(net, "Địa chỉ giao hàng", Theme.ROSE_DEEP, () -> null);
         address.onChange(() -> {
@@ -475,6 +480,11 @@ public class FoodPanel extends JPanel {
 
     private void requestQuote() {
         orderBtn.setEnabled(false);
+        String block = blocker.get();
+        if (block != null) {
+            summary.setText("<html><span style='color:#B3161B'>" + Ui.esc(block) + "</span></html>");
+            return;
+        }
         if (cart.isEmpty() || !address.has()) {
             summary.setText("Chọn địa chỉ giao để tính phí");
             return;
@@ -553,15 +563,21 @@ public class FoodPanel extends JPanel {
 
     private void onOrderUpdate(JsonObject d) {
         if (order != null && id(order) != id(d)) return;
-        String before = status();
-        showOrder(d, orderPoints);
-        String now = status();
-        if (!now.equals(before) && step.equals(TRACK)) {
-            String t = "Đơn #" + id(d);
-            if (now.equals("ACCEPTED")) Toast.info(this, "🛵", t, "Tài xế " + Json.str(d, "driver_name", "") + " đã nhận đơn", Theme.LAVENDER);
-            else if (now.equals("DELIVERED")) Toast.info(this, "✅", t, "Đã giao xong. Chúc bạn ngon miệng!", Theme.MINT);
-            else if (now.equals("CANCELLED")) Toast.info(this, "⚠️", t, "Đã hủy: " + Json.str(d, "cancel_reason", ""), Theme.ROSE);
-        }
+        showOrder(d, orderPoints); // thông báo trạng thái do UserFrame lo, để màn nào cũng thấy
+    }
+
+    /** Mã đơn đang chạy, -1 nếu không có. */
+    public long activeOrderId() {
+        return order != null && !FINISHED.contains(status()) ? id(order) : -1;
+    }
+
+    public String statusOf(long orderId) {
+        return order != null && id(order) == orderId ? status() : null;
+    }
+
+    /** Tính lại quyền bấm Đặt món khi việc khác của khách đổi trạng thái. */
+    public void refreshBlock() {
+        if (step.equals(CHECKOUT)) requestQuote();
     }
 
     private void showOrder(JsonObject o, JsonElement points) {

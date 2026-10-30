@@ -23,8 +23,8 @@ public class UserFrame extends BaseFrame {
     private final JPanel screens = new JPanel(cards);
     private String current = HOME;
 
-    private final RidePanel ride;
-    private final FoodPanel food;
+    private RidePanel ride;
+    private FoodPanel food;
     private final MerchantPanel merchant;
     private final ProfilePanel profile;
 
@@ -42,8 +42,28 @@ public class UserFrame extends BaseFrame {
 
     public UserFrame(Net net) {
         super(net, "Khách hàng", Theme.LAVENDER, Theme.LAVENDER_DEEP);
-        ride = new RidePanel(net, map, () -> current.equals(RIDE));
-        food = new FoodPanel(net, map, this::foodStepChanged);
+        // đăng ký trước khi tạo các panel: handler ở đây chạy trước, còn đọc được trạng thái cũ để biết có đổi không
+        net.on("RIDE_UPDATE", d -> {
+            notifyStatus("RIDE", d, ride.statusOf(id(d)));
+            loadHistory();
+            refreshBanner();
+            SwingUtilities.invokeLater(food::refreshBlock);
+        });
+        net.on("FOOD_UPDATE", d -> {
+            notifyStatus("FOOD", d, food.statusOf(id(d)));
+            loadHistory();
+            refreshBanner();
+            SwingUtilities.invokeLater(ride::refreshBlock);
+        });
+        // khách chỉ ở một chỗ: đang có đơn đồ ăn thì chưa đặt xe, đang có chuyến thì chưa đặt món
+        ride = new RidePanel(net, map, () -> current.equals(RIDE), () -> {
+            long o = food == null ? -1 : food.activeOrderId(); // panel kia có thể chưa tạo xong
+            return o < 0 ? null : "Bạn đang có đơn đồ ăn #" + o + " chưa hoàn tất, nhận xong mới đặt xe được";
+        });
+        food = new FoodPanel(net, map, this::foodStepChanged, () -> {
+            long r = ride == null ? -1 : ride.activeRideId();
+            return r < 0 ? null : "Bạn đang có chuyến xe #" + r + " chưa kết thúc, xong chuyến mới đặt đồ ăn được";
+        });
         merchant = new MerchantPanel(net, map, () -> current.equals(MERCHANT), this::merchantLayoutChanged);
         profile = new ProfilePanel(net);
         profile.onUpdated(p -> nameLabel.setText(Json.str(p, "full_name", "")));
@@ -64,14 +84,6 @@ public class UserFrame extends BaseFrame {
         addHeaderAction("🕘 Lịch sử", () -> go(HISTORY));
         addHeaderAction("👤 Tài khoản", () -> go(PROFILE));
 
-        net.on("RIDE_UPDATE", d -> {
-            loadHistory();
-            refreshBanner();
-        });
-        net.on("FOOD_UPDATE", d -> {
-            loadHistory();
-            refreshBanner();
-        });
         loadHistory();
         go(HOME);
         // tài khoản đang có quán thì mở thẳng màn quản lý quán (có thể bấm Quay lại để đặt món như khách)
@@ -93,6 +105,7 @@ public class UserFrame extends BaseFrame {
             }
             case RIDE -> {
                 setNav("Đặt xe", () -> go(HOME));
+                ride.refreshBlock();
                 ride.drawMap(true);
             }
             case FOOD -> {
@@ -116,6 +129,42 @@ public class UserFrame extends BaseFrame {
             default -> setNav("", () -> go(HOME));
         }
     }
+
+    /**
+     * Thông báo nổi khi chuyến/đơn đổi trạng thái, hiện ở mọi màn hình (kể cả trang chủ, lịch sử);
+     * đang ở màn khác thì có nút Xem để nhảy sang.
+     */
+    private void notifyStatus(String kind, JsonObject d, String before) {
+        String now = Json.str(d, "status", "");
+        if (now.isEmpty() || now.equals(before)) return;
+        boolean ride = kind.equals("RIDE");
+        String driver = Json.str(d, "driver_name", "tài xế");
+        String msg = ride ? switch (now) {
+            case "ACCEPTED" -> "Tài xế " + driver + " đã nhận chuyến, đang tới đón bạn";
+            case "ARRIVED" -> "Tài xế đã tới điểm đón, mời bạn lên xe";
+            case "PICKED_UP" -> "Đã lên xe, đang đi tới điểm đến";
+            case "COMPLETED" -> "Chuyến đi hoàn thành. Cảm ơn bạn đã dùng GoRide!";
+            case "CANCELLED" -> "Chuyến đã hủy: " + Json.str(d, "cancel_reason", "");
+            default -> null;
+        } : switch (now) {
+            case "CONFIRMED" -> "Quán đã nhận đơn, đang tìm tài xế";
+            case "ACCEPTED" -> "Tài xế " + driver + " đã nhận đơn";
+            case "AT_RESTAURANT" -> "Tài xế đã tới quán lấy món";
+            case "PICKED_UP" -> "Tài xế đã lấy món";
+            case "DELIVERING" -> "Tài xế đang giao tới bạn";
+            case "DELIVERED" -> "Đã giao xong. Chúc bạn ngon miệng!";
+            case "CANCELLED" -> "Đơn đã hủy: " + Json.str(d, "cancel_reason", "");
+            default -> null;
+        };
+        if (msg == null) return;
+        String screen = ride ? RIDE : FOOD;
+        Color tone = now.equals("CANCELLED") ? Theme.ROSE : now.equals("COMPLETED") || now.equals("DELIVERED") ? Theme.MINT : Theme.LAVENDER;
+        String icon = now.equals("CANCELLED") ? "⚠️" : now.equals("COMPLETED") || now.equals("DELIVERED") ? "✅" : ride ? "🛵" : "🍜";
+        Toast.show(this, icon, (ride ? "Chuyến #" : "Đơn #") + id(d), msg, tone,
+                current.equals(screen) ? null : "Xem", () -> go(screen));
+    }
+
+    private static long id(JsonObject o) { return Json.lng(o, "id", -1); }
 
     /** FoodPanel đổi bước -> cập nhật tiêu đề, nút quay lại và vị trí bản đồ. */
     private void foodStepChanged() {

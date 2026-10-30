@@ -47,6 +47,7 @@ Làm lại DB từ đầu: `docker compose down -v && docker compose up -d`.
 
 ## Chức năng chính
 - **Khách**: đăng ký có OTP Gmail (5 phút) · đặt xe máy/ô tô · đặt đồ ăn 4 bước · thẻ giảm giá 10–15% (ngày đôi 20%) · theo dõi tài xế realtime · đánh giá tài xế và quán · mở quán (Admin duyệt).
+- **Luật 1 việc**: khách chỉ có 1 chuyến xe hoặc 1 đơn đồ ăn đang chạy (xong mới đặt tiếp); thông báo trạng thái hiện ở mọi màn hình. Tài xế đang chở khách không nhận thêm; giao gộp chỉ nhận thêm đơn **trước khi lấy món**, đã cầm món thì giao xong lô mới nhận tiếp.
 - **Chủ quán**: nhận/từ chối đơn · đánh giá quán · đối soát tháng, xuất hoá đơn.
 - **Tài xế**: tự Online + GPS · nhận chuyến hoặc **giao gộp tối đa 3 đơn** với lộ trình ngắn nhất (Pickup & Delivery TSP, duyệt nhánh-cận) · chỉ bấm "Đã tới / Hoàn thành / Đã giao" khi xe đã tới nơi · thu nhập, đối soát tháng.
 - **Admin**: dashboard, duyệt tài xế/quán, quản lý khách, quán, thực đơn, bảng giá, thanh toán, đánh giá.

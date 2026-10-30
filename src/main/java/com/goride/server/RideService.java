@@ -71,6 +71,8 @@ public final class RideService {
         String payment = paymentMethod(Json.str(d, "payment_method", "CASH"));
         if (Db.one("SELECT id FROM rides WHERE user_id=? AND status IN " + ACTIVE, c.userId) != null)
             throw new AppException("Bạn đang có một chuyến chưa kết thúc");
+        // khách chỉ ở một chỗ: đang chờ giao đồ ăn thì không đặt xe đi nơi khác
+        if (FoodService.hasActiveOrder(c.userId)) throw new AppException("Bạn đang có đơn đồ ăn chưa hoàn tất, nhận xong mới đặt xe được");
         double[] from = point(d, "pickup"), to = point(d, "drop");
         JsonObject route = MapboxClient.route(from[0], from[1], to[0], to[1], vehicle.equals("CAR") ? "car" : "bike");
         int dist = route.get("distance_m").getAsInt(), dur = route.get("duration_s").getAsInt();
@@ -98,6 +100,10 @@ public final class RideService {
         SCHEDULER.schedule(() -> safe(() -> timeout(id)), SEARCH_TIMEOUT_S, TimeUnit.SECONDS);
         ride.add("points", route.get("points"));
         return ride;
+    }
+
+    static boolean hasActiveRide(long userId) {
+        return Db.one("SELECT id FROM rides WHERE user_id=? AND status IN " + ACTIVE, userId) != null;
     }
 
     static JsonObject cancelByUser(ClientHandler c, JsonObject d) {

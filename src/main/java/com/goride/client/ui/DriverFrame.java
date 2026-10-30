@@ -296,6 +296,7 @@ public class DriverFrame extends BaseFrame {
 
     private void renderOnline(boolean on) {
         onlineBtn.setSelected(on);
+        if (!canTakeMore()) offerModel.clear(); // yêu cầu cũ không còn nhận được nữa
         offerBox.setVisible(on && canTakeMore());
         renderOfferHint();
         renderLocks();
@@ -348,9 +349,11 @@ public class DriverFrame extends BaseFrame {
 
     /** Danh sách trống thì nói rõ vì sao, thay vì để tài xế nhìn một ô rỗng. */
     private void renderOfferHint() {
-        if (!foodJobs.isEmpty()) {
+        if (!foodJobs.isEmpty() && pickedUpAny()) {
+            offerHint.setText("Đã lấy món · giao xong lô này mới nhận thêm đơn");
+        } else if (!foodJobs.isEmpty()) {
             offerHint.setText("Đang giữ " + foodJobs.size() + "/" + MAX_BATCH + " đơn · nhận thêm được "
-                    + (MAX_BATCH - foodJobs.size()) + " đơn");
+                    + (MAX_BATCH - foodJobs.size()) + " đơn (trước khi lấy món)");
         } else if (offerModel.isEmpty()) {
             offerHint.setText("Chưa có yêu cầu trong bán kính " + Config.getDouble("MATCH_RADIUS_KM", 5) + " km");
         } else {
@@ -424,7 +427,15 @@ public class DriverFrame extends BaseFrame {
 
     /** Còn nhận thêm được: đang rảnh, hoặc đang giao đồ ăn mà chưa đủ MAX_BATCH đơn. */
     private boolean canTakeMore() {
-        return job == null || (!isRide() && foodJobs.size() < MAX_BATCH);
+        return job == null || (!isRide() && foodJobs.size() < MAX_BATCH && !pickedUpAny());
+    }
+
+    /** Đã cầm món của đơn nào trên xe thì khoá nhận thêm, giao xong lô này mới nhận tiếp. */
+    private boolean pickedUpAny() {
+        return foodJobs.values().stream().anyMatch(o -> {
+            String s = Json.str(o, "status", "");
+            return s.equals("PICKED_UP") || s.equals("DELIVERING");
+        });
     }
 
     private void addOffer(JsonObject o) {
